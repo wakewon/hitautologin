@@ -45,7 +45,7 @@
       err_autoclosed: "。自动登录已关闭。",
       err_captcha: "检测到验证码弹窗，自动登录已关闭。",
       fab_title_tools: "常用工具",
-      tool_webvpn: "WebVPN 重载"
+      tool_webvpn: "通过 WebVPN 访问"
     },
     en: {
       site_hit: "Current site: HIT",
@@ -74,7 +74,7 @@
       err_autoclosed: ". Auto-login is turned off.",
       err_captcha: "Captcha dialog detected. Auto-login is turned off.",
       fab_title_tools: "Common Tools",
-      tool_webvpn: "WebVPN Reload"
+      tool_webvpn: "Access via WebVPN"
     }
   };
   let LANG = 'zh';

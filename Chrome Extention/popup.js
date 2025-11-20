@@ -28,7 +28,7 @@ const I18N = {
     idp_auth: "自动同意校外授权",
     enabled_idp: "已开启自动授权",
     disabled_idp: "已关闭自动授权",
-    webvpn_reload: "使用 WebVPN 重载",
+    webvpn_reload: "通过 WebVPN 访问",
     invalid_url: "无效的 URL"
   },
   en: {
@@ -52,7 +52,7 @@ const I18N = {
     idp_auth: "Auto Authorize Off-campus",
     enabled_idp: "Auto auth enabled",
     disabled_idp: "Auto auth disabled",
-    webvpn_reload: "Reload with WebVPN",
+    webvpn_reload: "Access via WebVPN",
     invalid_url: "Invalid URL"
   }
 };
