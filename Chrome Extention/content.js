@@ -470,17 +470,73 @@
     doHitAutoLogin({ force: true });
   }
 
+  function handleIdpAuth() {
+    if (location.hostname !== 'idp.hit.edu.cn') return;
+
+    // 1. 身份认证与隐私声明页
+    // 页面特征：checkbox#accept, button[name="_eventId_proceed"]
+    const acceptBox = document.getElementById('accept');
+    const proceedBtn = document.querySelector('button[name="_eventId_proceed"]');
+
+    if (acceptBox && proceedBtn) {
+      // 自动勾选
+      if (!acceptBox.checked) {
+        acceptBox.checked = true;
+        acceptBox.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      // 提交
+      setTimeout(() => {
+        proceedBtn.click();
+      }, 200);
+
+      showOverlay();
+      const msg = document.getElementById('hit-overlay-msg');
+      if (msg) msg.textContent = "正在自动同意校外访问授权...";
+      return;
+    }
+
+    // 2. 信息发布页 (Information Release)
+    // 页面特征：input[value="_shib_idp_globalConsent"], button[name="_eventId_proceed"]
+    const globalConsentRadio = document.querySelector('input[type="radio"][value="_shib_idp_globalConsent"]');
+
+    if (globalConsentRadio && proceedBtn) {
+      // 选中“不要再次提示我”
+      if (!globalConsentRadio.checked) {
+        globalConsentRadio.checked = true;
+        globalConsentRadio.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      // 提交
+      setTimeout(() => {
+        proceedBtn.click();
+      }, 200);
+
+      showOverlay();
+      const msg = document.getElementById('hit-overlay-msg');
+      if (msg) msg.textContent = "正在自动同意信息发布...";
+    }
+  }
+
   async function boot() {
     LANG = await store.get('lang', 'zh');
     const fabOn = await store.get(FAB_KEY, true);
     if (fabOn) await createFab();
 
     if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', () => { autoLoginWithRetry(); });
-      window.addEventListener('load', () => { autoLoginWithRetry(); });
+      document.addEventListener('DOMContentLoaded', () => {
+        autoLoginWithRetry();
+        handleIdpAuth();
+      });
+      window.addEventListener('load', () => {
+        autoLoginWithRetry();
+        handleIdpAuth();
+      });
     } else {
       autoLoginWithRetry();
-      window.addEventListener('load', () => { autoLoginWithRetry(); });
+      handleIdpAuth();
+      window.addEventListener('load', () => {
+        autoLoginWithRetry();
+        handleIdpAuth();
+      });
     }
   }
   boot();
