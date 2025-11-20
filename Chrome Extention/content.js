@@ -216,20 +216,25 @@
   }
 
   // ====== 悬浮入口（全站显示）======
+  // ====== 悬浮入口（全站显示）======
   let fabDocHandler = null;
+  let fabShadowRoot = null;
 
-  function ensureFabStyle() {
-    addStyle(`
-      #hit-fab{ position: fixed; right:14px; bottom:16px; z-index:2147483646;
-        font-family: system-ui, -apple-system, Segoe UI, Roboto, "PingFang SC","Microsoft YaHei",sans-serif;}
+  function getFabCss() {
+    return `
+      :host { position: fixed; right:14px; bottom:16px; z-index:2147483646;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, "PingFang SC","Microsoft YaHei",sans-serif; }
       #hit-fab-toggle{ width:48px; height:48px; border-radius:50%; border:none; cursor:pointer; background:#005375; color:#fff;
-        font-weight:700; font-size:14px; box-shadow:0 8px 20px rgba(0,0,0,.25);}
+        font-weight:700; font-size:14px; box-shadow:0 8px 20px rgba(0,0,0,.25); transition: transform 0.2s; }
+      #hit-fab-toggle:hover { transform: scale(1.05); }
       #hit-fab-panel{ position:absolute; right:0; bottom:60px; min-width:260px; max-width:86vw; background:#fff; color:#111;
-        border-radius:14px; padding:12px; box-shadow:0 16px 40px rgba(0,0,0,.25); display:none;}
+        border-radius:14px; padding:12px; box-shadow:0 16px 40px rgba(0,0,0,.25); display:none;
+        transform-origin: bottom right; animation: hit-pop-in 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
       #hit-fab-panel.open{ display:block; }
+      @keyframes hit-pop-in { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
       .hit-fab-title{ font-size:14px; font-weight:700; margin:2px 0 8px; }
       .hit-fab-row{ display:flex; gap:8px; flex-wrap:wrap; }
-      .hit-fab-btn{ border:none; border-radius:999px; padding:8px 12px; background:#eef2ff; cursor:pointer; font-size:13px; color: #111; }
+      .hit-fab-btn{ border:none; border-radius:999px; padding:8px 12px; background:#eef2ff; cursor:pointer; font-size:13px; color: #111; transition: background 0.2s; }
       .hit-fab-btn:hover{ background:#e0e7ff; }
       .hit-fab-sec{ margin-top:10px; padding-top:8px; border-top:1px dashed #e5e7eb; }
       .hit-fab-meta{ font-size:12px; color:#6b7280; }
@@ -242,14 +247,15 @@
         .hit-fab-sec { border-top-color: #4b5563; }
         .hit-fab-meta { color: #9ca3af; }
       }
-    `);
+    `;
   }
 
   const mask = (str) => (!str ? t('val_unset') : '•'.repeat(Math.min(8, Math.max(6, Math.floor(str.length * 0.8)))));
 
   function renderFabStaticTexts() {
     // 标题与按钮文案
-    const p = document.getElementById('hit-fab-panel');
+    if (!fabShadowRoot) return;
+    const p = fabShadowRoot.getElementById('hit-fab-panel');
     if (!p) return;
     const titleEls = p.querySelectorAll('.hit-fab-title');
     if (titleEls[0]) titleEls[0].textContent = t('fab_title_links');
@@ -263,23 +269,23 @@
       if (g === 'wlan') btn.textContent = t('common_wlan');
     });
 
-    const btnSetU = document.getElementById('hit-fab-set-username');
-    const btnSetP = document.getElementById('hit-fab-set-password');
-    const btnTgl = document.getElementById('hit-fab-toggle-autologin');
-    const btnTrig = document.getElementById('hit-fab-trigger-login');
+    const btnSetU = fabShadowRoot.getElementById('hit-fab-set-username');
+    const btnSetP = fabShadowRoot.getElementById('hit-fab-set-password');
+    const btnTgl = fabShadowRoot.getElementById('hit-fab-toggle-autologin');
+    const btnTrig = fabShadowRoot.getElementById('hit-fab-trigger-login');
     if (btnSetU) btnSetU.textContent = t('fab_set_user');
     if (btnSetP) btnSetP.textContent = t('fab_set_pass');
     if (btnTgl) btnTgl.textContent = t('fab_toggle_auto');
     if (btnTrig) btnTrig.textContent = t('fab_trigger_once');
 
-    const siteMeta = document.getElementById('hit-fab-site-meta');
+    const siteMeta = fabShadowRoot.getElementById('hit-fab-site-meta');
     if (siteMeta) siteMeta.textContent = isHitSite ? t('site_hit') : t('site_non');
   }
 
   // —— 提升为外层函数，便于 storage 变化时重渲染 ——
   async function renderFabKV() {
-    if (!isHitSite) return;
-    const kvBox = document.getElementById('hit-fab-kv-box');
+    if (!isHitSite || !fabShadowRoot) return;
+    const kvBox = fabShadowRoot.getElementById('hit-fab-kv-box');
     if (!kvBox) return;
     const savedUsername = await store.get("username", "");
     const savedPassword = await store.get("password", "");
@@ -292,11 +298,19 @@
   }
 
   async function createFab() {
-    if (document.getElementById('hit-fab')) return;
-    ensureFabStyle();
-    const wrap = document.createElement('div');
-    wrap.id = 'hit-fab';
-    wrap.innerHTML = `
+    if (document.getElementById('hit-fab-host')) return;
+
+    const host = document.createElement('div');
+    host.id = 'hit-fab-host';
+    const shadow = host.attachShadow({ mode: 'open' });
+    fabShadowRoot = shadow;
+
+    const style = document.createElement('style');
+    style.textContent = getFabCss();
+    shadow.appendChild(style);
+
+    const container = document.createElement('div');
+    container.innerHTML = `
       <button id="hit-fab-toggle" title="HIT">HIT</button>
       <div id="hit-fab-panel" role="dialog" aria-label="HIT">
         <div class="hit-fab-title"></div>
@@ -322,20 +336,21 @@
         </div>
       </div>
     `;
-    document.documentElement.appendChild(wrap);
+    while (container.firstChild) shadow.appendChild(container.firstChild);
+    document.documentElement.appendChild(host);
 
-    const panel = document.getElementById('hit-fab-panel');
-    const toggle = document.getElementById('hit-fab-toggle');
+    const panel = shadow.getElementById('hit-fab-panel');
+    const toggle = shadow.getElementById('hit-fab-toggle');
 
     toggle.addEventListener('click', (e) => {
       e.stopPropagation(); panel.classList.toggle('open');
     });
 
     fabDocHandler = (e) => {
-      if (!panel.classList.contains('open')) return;
-      const inside = panel.contains(e.target);
-      const onToggle = toggle.contains(e.target);
-      if (!inside && !onToggle) panel.classList.remove('open');
+      // If click target is not the host, it means it's outside the shadow DOM (or at least outside our component)
+      if (e.target !== host) {
+        panel.classList.remove('open');
+      }
     };
     document.addEventListener('click', fabDocHandler, true);
 
@@ -353,24 +368,24 @@
     if (isHitSite) {
       await renderFabKV();
 
-      document.getElementById('hit-fab-set-username').addEventListener('click', async () => {
+      shadow.getElementById('hit-fab-set-username').addEventListener('click', async () => {
         const cur = await store.get("username", "");
         const v = prompt(LANG === 'zh' ? "请输入用户名:" : "Enter username:", cur || "");
         if (v !== null) { await store.set("username", v); await renderFabKV(); alert(LANG === 'zh' ? "用户名已保存" : "Username saved"); }
       });
-      document.getElementById('hit-fab-set-password').addEventListener('click', async () => {
+      shadow.getElementById('hit-fab-set-password').addEventListener('click', async () => {
         const cur = await store.get("password", "");
         const v = prompt(LANG === 'zh' ? "请输入密码:" : "Enter password:", cur || "");
         if (v !== null) { await store.set("password", v); await renderFabKV(); alert(LANG === 'zh' ? "密码已保存" : "Password saved"); }
       });
-      document.getElementById('hit-fab-toggle-autologin').addEventListener('click', async () => {
+      shadow.getElementById('hit-fab-toggle-autologin').addEventListener('click', async () => {
         const cur = !!(await store.get("autoLogin", false));
         await store.set("autoLogin", !cur);
         await renderFabKV();
         alert(!cur ? (LANG === 'zh' ? "自动登录已开启" : "Auto-login enabled")
           : (LANG === 'zh' ? "自动登录已关闭" : "Auto-login disabled"));
       });
-      document.getElementById('hit-fab-trigger-login').addEventListener('click', () => {
+      shadow.getElementById('hit-fab-trigger-login').addEventListener('click', () => {
         triggerAutoLoginOnce();
       });
     }
@@ -381,7 +396,8 @@
       document.removeEventListener('click', fabDocHandler, true);
       fabDocHandler = null;
     }
-    document.getElementById('hit-fab')?.remove();
+    document.getElementById('hit-fab-host')?.remove();
+    fabShadowRoot = null;
   }
 
   // ====== 自动登录核心 ======
