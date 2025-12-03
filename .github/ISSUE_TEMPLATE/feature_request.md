@@ -3,6 +3,8 @@ name: Feature Request
 about: 提出一个新功能需求
 title: "[Feature] "
 labels: enhancement
+assignees:
+  - TerrorAWM
 ---
 
 ### 需求描述

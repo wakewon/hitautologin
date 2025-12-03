@@ -3,6 +3,8 @@ name: Bug Report
 about: 报告一个 Bug
 title: "[Bug] "
 labels: bug
+assignees:
+  - TerrorAWM
 ---
 
 ### 描述 Bug
