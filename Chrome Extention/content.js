@@ -153,7 +153,7 @@
   function addStyle(css) {
     const s = document.createElement('style');
     s.textContent = css;
-    document.documentElement.appendChild(s);
+    document.head.appendChild(s);
   }
 
   // ====== “接管中”浮层 ======
@@ -206,7 +206,7 @@
           <button class="hit-btn hit-btn-primary" id="hit-go-portal"></button>
         </div>
       </div>`;
-    document.documentElement.appendChild(wrap);
+    document.body.appendChild(wrap);
     renderOverlayTexts();
 
     document.getElementById('hit-overlay-close')?.addEventListener('click', () => {
@@ -360,7 +360,7 @@
       </div>
     `;
     while (container.firstChild) shadow.appendChild(container.firstChild);
-    document.documentElement.appendChild(host);
+    document.body.appendChild(host);
 
     const panel = shadow.getElementById('hit-fab-panel');
     const toggle = shadow.getElementById('hit-fab-toggle');

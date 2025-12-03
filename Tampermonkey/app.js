@@ -2,7 +2,7 @@
 // @name         HIT 校园网站自动登录2.0
 // @namespace    https://github.com/TerrorAWM
 // @updateURL    https://greasyfork.org/zh-CN/scripts/507678-hit-%E6%A0%A1%E5%9B%AD%E7%BD%91%E7%AB%99%E8%87%AA%E5%8A%A8%E7%99%BB%E5%BD%952-0
-// @version      1.3.0
+// @version      1.3.1
 // @description  在 HIT 站点自动填充/登录；在所有页面都显示可折叠悬浮入口，便于随时跳转HIT内/外网与HIT-WLAN；支持WebVPN重定向与校外授权自动同意
 // @author       Ricardo Zheng
 // @match        http://*/*
@@ -103,8 +103,8 @@
   let interrupted = false;
   let pollTimer = null;
 
-  function ensureOverlayStyle() {
-    GM_addStyle(`
+  function getOverlayCss() {
+    return `
       #hit-overlay { position: fixed; inset:0; z-index:2147483647;
         background: rgba(0,0,0,.35); display:flex; align-items:center; justify-content:center; backdrop-filter: blur(2px);}
       #hit-overlay-box{ position: relative; min-width:300px; max-width:90vw; background:#fff; color:#111; border-radius:16px;
@@ -121,13 +121,21 @@
       .hit-btn-primary{ background:#eef2ff; }
       .hit-btn-primary:hover{ background:#e0e7ff; }
       @keyframes hitspin { to { transform: rotate(360deg); } }
-    `);
+    `;
   }
 
   function showOverlay(msg = '接管中…正在自动填写/登录') {
-    if (document.getElementById('hit-overlay')) return;
+    if (document.getElementById('hit-overlay-host')) return;
     interrupted = false;
-    ensureOverlayStyle();
+
+    const host = document.createElement('div');
+    host.id = 'hit-overlay-host';
+    const shadow = host.attachShadow({ mode: 'open' });
+
+    const style = document.createElement('style');
+    style.textContent = getOverlayCss();
+    shadow.appendChild(style);
+
     const wrap = document.createElement('div');
     wrap.id = 'hit-overlay';
     wrap.innerHTML = `
@@ -140,10 +148,11 @@
           <button class="hit-btn hit-btn-primary" id="hit-go-portal">登录校园网</button>
         </div>
       </div>`;
-    document.documentElement.appendChild(wrap);
+    shadow.appendChild(wrap);
+    document.body.appendChild(host);
 
     // 点击“×”关闭
-    document.getElementById('hit-overlay-close')?.addEventListener('click', () => {
+    shadow.getElementById('hit-overlay-close')?.addEventListener('click', () => {
       interrupted = true; hideOverlay();
     });
     // 点击半透明背景关闭（等效中断）
@@ -151,32 +160,33 @@
       if (e.target === wrap) { interrupted = true; hideOverlay(); }
     });
     // 直接跳转 WLAN
-    document.getElementById('hit-go-portal')?.addEventListener('click', () => { location.href = URL_WLAN; });
+    shadow.getElementById('hit-go-portal')?.addEventListener('click', () => { location.href = URL_WLAN; });
   }
 
   function hideOverlay() {
     if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
-    document.getElementById('hit-overlay')?.remove();
+    document.getElementById('hit-overlay-host')?.remove();
   }
 
   // ====== 悬浮入口（全站显示）======
-  let fabDocHandler = null;  // 文档级点击监听（收起面板）
+  let fabDocHandler = null;
+  let fabShadowRoot = null;
 
-  function ensureFabStyle() {
-    GM_addStyle(`
-      #hit-fab{ position: fixed; right:14px; bottom:16px; z-index:2147483646;
-        font-family: system-ui, -apple-system, Segoe UI, Roboto, "PingFang SC","Microsoft YaHei",sans-serif;}
+  function getFabCss() {
+    return `
+      :host { position: fixed; right:14px; bottom:16px; z-index:2147483646;
+        font-family: system-ui, -apple-system, Segoe UI, Roboto, "PingFang SC","Microsoft YaHei",sans-serif; }
       #hit-fab-toggle{ width:48px; height:48px; border-radius:50%; border:none; cursor:pointer; background:#005375; color:#fff;
-        font-weight:700; font-size:14px; box-shadow:0 8px 20px rgba(0,0,0,.25); transition: transform 0.2s;}
+        font-weight:700; font-size:14px; box-shadow:0 8px 20px rgba(0,0,0,.25); transition: transform 0.2s; }
       #hit-fab-toggle:hover { transform: scale(1.05); }
       #hit-fab-panel{ position:absolute; right:0; bottom:60px; min-width:260px; max-width:86vw; background:#fff; color:#111;
         border-radius:14px; padding:12px; box-shadow:0 16px 40px rgba(0,0,0,.25); display:none;
-        transform-origin: bottom right; animation: hit-pop-in 0.2s cubic-bezier(0.16, 1, 0.3, 1);}
+        transform-origin: bottom right; animation: hit-pop-in 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
       #hit-fab-panel.open{ display:block; }
       @keyframes hit-pop-in { from { opacity: 0; transform: scale(0.9); } to { opacity: 1; transform: scale(1); } }
       .hit-fab-title{ font-size:14px; font-weight:700; margin:2px 0 8px; }
       .hit-fab-row{ display:flex; gap:8px; flex-wrap:wrap; }
-      .hit-fab-btn{ border:none; border-radius:999px; padding:8px 12px; background:#eef2ff; cursor:pointer; font-size:13px; color:#111; transition: background 0.2s; }
+      .hit-fab-btn{ border:none; border-radius:999px; padding:8px 12px; background:#eef2ff; cursor:pointer; font-size:13px; color: #111; transition: background 0.2s; }
       .hit-fab-btn:hover{ background:#e0e7ff; }
       .hit-fab-sec{ margin-top:10px; padding-top:8px; border-top:1px dashed #e5e7eb; }
       .hit-fab-meta{ font-size:12px; color:#6b7280; }
@@ -189,7 +199,7 @@
         .hit-fab-sec { border-top-color: #4b5563; }
         .hit-fab-meta { color: #9ca3af; }
       }
-    `);
+    `;
   }
 
   function mask(str) {
@@ -198,12 +208,19 @@
   }
 
   function createFab() {
-    if (document.getElementById('hit-fab')) return;
+    if (document.getElementById('hit-fab-host')) return;
 
-    ensureFabStyle();
-    const wrap = document.createElement('div');
-    wrap.id = 'hit-fab';
-    wrap.innerHTML = `
+    const host = document.createElement('div');
+    host.id = 'hit-fab-host';
+    const shadow = host.attachShadow({ mode: 'open' });
+    fabShadowRoot = shadow;
+
+    const style = document.createElement('style');
+    style.textContent = getFabCss();
+    shadow.appendChild(style);
+
+    const container = document.createElement('div');
+    container.innerHTML = `
       <button id="hit-fab-toggle" title="HIT 快捷入口">HIT</button>
       <div id="hit-fab-panel" role="dialog" aria-label="HIT 快捷入口">
         <div class="hit-fab-title">常用入口</div>
@@ -236,10 +253,11 @@
         </div>
       </div>
     `;
-    document.documentElement.appendChild(wrap);
+    while (container.firstChild) shadow.appendChild(container.firstChild);
+    document.body.appendChild(host);
 
-    const panel = document.getElementById('hit-fab-panel');
-    const toggle = document.getElementById('hit-fab-toggle');
+    const panel = shadow.getElementById('hit-fab-panel');
+    const toggle = shadow.getElementById('hit-fab-toggle');
 
     // 展开/收起
     toggle.addEventListener('click', (e) => {
@@ -249,10 +267,10 @@
 
     // 点击面板外任意位置收起
     fabDocHandler = (e) => {
-      if (!panel.classList.contains('open')) return;
-      const insidePanel = panel.contains(e.target);
-      const onToggle = toggle.contains(e.target);
-      if (!insidePanel && !onToggle) panel.classList.remove('open');
+      // If click target is not the host, it means it's outside the shadow DOM (or at least outside our component)
+      if (e.target !== host) {
+        panel.classList.remove('open');
+      }
     };
     document.addEventListener('click', fabDocHandler, true);
 
@@ -267,7 +285,7 @@
     });
 
     // WebVPN 工具按钮
-    document.getElementById('hit-fab-tool-webvpn')?.addEventListener('click', () => {
+    shadow.getElementById('hit-fab-tool-webvpn')?.addEventListener('click', () => {
       const url = location.href;
       try {
         const urlObj = new URL(url);
@@ -290,7 +308,7 @@
 
     // 登录助手（仅 HIT 域）
     if (isHitSite) {
-      const kvBox = document.getElementById('hit-fab-kv-box');
+      const kvBox = shadow.getElementById('hit-fab-kv-box');
       function renderKV() {
         const savedUsername = GM_getValue("username", "未设置");
         const savedPassword = GM_getValue("password", "");
@@ -305,27 +323,27 @@
       }
       renderKV();
 
-      document.getElementById('hit-fab-set-username').addEventListener('click', () => {
+      shadow.getElementById('hit-fab-set-username').addEventListener('click', () => {
         const v = prompt("请输入用户名:", GM_getValue("username", ""));
         if (v !== null) { GM_setValue("username", v); renderKV(); alert("用户名已保存"); }
       });
-      document.getElementById('hit-fab-set-password').addEventListener('click', () => {
+      shadow.getElementById('hit-fab-set-password').addEventListener('click', () => {
         const v = prompt("请输入密码:", GM_getValue("password", ""));
         if (v !== null) { GM_setValue("password", v); renderKV(); alert("密码已保存"); }
       });
-      document.getElementById('hit-fab-toggle-autologin').addEventListener('click', () => {
+      shadow.getElementById('hit-fab-toggle-autologin').addEventListener('click', () => {
         const cur = !!GM_getValue("autoLogin", false);
         GM_setValue("autoLogin", !cur);
         renderKV();
         alert(!cur ? "自动登录已开启" : "自动登录已关闭");
       });
-      document.getElementById('hit-fab-toggle-idp')?.addEventListener('click', () => {
+      shadow.getElementById('hit-fab-toggle-idp')?.addEventListener('click', () => {
         const cur = !!GM_getValue("idpAutoAuth", true);
         GM_setValue("idpAutoAuth", !cur);
         renderKV();
         alert(!cur ? "校外授权自动同意已开启" : "校外授权自动同意已关闭");
       });
-      document.getElementById('hit-fab-trigger-login').addEventListener('click', () => {
+      shadow.getElementById('hit-fab-trigger-login').addEventListener('click', () => {
         triggerAutoLoginOnce(); // 立即强制尝试一次
       });
     }
@@ -336,7 +354,8 @@
       document.removeEventListener('click', fabDocHandler, true);
       fabDocHandler = null;
     }
-    document.getElementById('hit-fab')?.remove();
+    document.getElementById('hit-fab-host')?.remove();
+    fabShadowRoot = null;
   }
 
   // ====== Tampermonkey 菜单 ======
@@ -487,7 +506,8 @@
       }, 200);
 
       showOverlay();
-      const msg = document.getElementById('hit-overlay-msg');
+      const host = document.getElementById('hit-overlay-host');
+      const msg = host?.shadowRoot?.getElementById('hit-overlay-msg');
       if (msg) msg.textContent = "正在自动同意校外访问授权...";
       return;
     }
@@ -508,7 +528,8 @@
       }, 200);
 
       showOverlay();
-      const msg = document.getElementById('hit-overlay-msg');
+      const host = document.getElementById('hit-overlay-host');
+      const msg = host?.shadowRoot?.getElementById('hit-overlay-msg');
       if (msg) msg.textContent = "正在自动同意信息发布...";
     }
   }
