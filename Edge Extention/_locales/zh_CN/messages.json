@@ -1,0 +1,14 @@
+{
+    "appName": {
+        "message": "HIT 校园网站自动登录 2.0",
+        "description": "The name of the extension"
+    },
+    "appDesc": {
+        "message": "HIT 校园网站自动登录 2.0 是一款面向哈尔滨工业大学常用站点的登录辅助扩展：可在 HIT 各类登录页面自动填充账号密码并（可选）自动登录；同时在任意网页右下角提供可折叠的「HIT」悬浮入口，便于随时跳转校园常用服务与访问方式。",
+        "description": "The description of the extension"
+    },
+    "defaultTitle": {
+        "message": "HIT 自动登录",
+        "description": "The default title for the action"
+    }
+}

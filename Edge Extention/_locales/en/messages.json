@@ -1,0 +1,14 @@
+{
+    "appName": {
+        "message": "HIT Campus Auto Login 2.0",
+        "description": "The name of the extension"
+    },
+    "appDesc": {
+        "message": "Login assistant for HIT sites: auto-fill/login on login pages, plus a 'HIT' floating button for quick access to campus services.",
+        "description": "The description of the extension"
+    },
+    "defaultTitle": {
+        "message": "HIT Auto Login",
+        "description": "The default title for the action"
+    }
+}
