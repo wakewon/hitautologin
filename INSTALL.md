@@ -63,22 +63,21 @@
 
 ## Edge 扩展版
 
-> Edge Add-ons 商店审核中，目前请使用手动安装方式。
+1. 打开 [Edge Add-ons 商店](https://microsoftedge.microsoft.com/addons/detail/hit-%E6%A0%A1%E5%9B%AD%E7%BD%91%E7%AB%99%E8%87%AA%E5%8A%A8%E7%99%BB%E5%BD%95-20/dlpdlfndlmeaepiabdonndfbjpdciefo)
+2. 点击「获取」
+3. 完成
 
-### 第一步：下载扩展文件
+### 手动安装（可选）
 
 1. 在本仓库页面，点击绿色的 **Code** 按钮
 2. 选择 **Download ZIP**
 3. 解压下载的 ZIP 文件
-
-### 第二步：安装扩展
-
-1. 打开 Edge 浏览器
-2. 在地址栏输入 `edge://extensions/` 并回车
-3. 打开左下角的「开发人员模式」开关
-4. 点击「加载解压缩的扩展」
-5. 选择解压后的 `Edge Extension` 文件夹
-6. 完成，你会在浏览器工具栏看到 HIT 图标
+4. 打开 Edge 浏览器
+5. 在地址栏输入 `edge://extensions/` 并回车
+6. 打开左下角的「开发人员模式」开关
+7. 点击「加载解压缩的扩展」
+8. 选择解压后的 `Edge Extension` 文件夹
+9. 完成，你会在浏览器工具栏看到 HIT 图标
 
 ---
 
