@@ -2,6 +2,14 @@
 (() => {
   'use strict';
 
+  // ========== 跳过自动登录的站点 ==========
+  // 这些站点会导致自动登录兼容性问题，只显示FAB但不执行自动登录
+  const SKIP_AUTOLOGIN_HOSTNAMES = [
+    'mail.hit.edu.cn'  // Issue #4: HIT MAIL 登录页面兼容性问题
+  ];
+
+  const skipAutoLogin = SKIP_AUTOLOGIN_HOSTNAMES.includes(location.hostname);
+
   // ========== 简易存储 ==========
   const store = {
     async get(key, defVal) {
@@ -594,7 +602,7 @@
   }
 
   function autoLoginWithRetry() {
-    if (!isHitSite) return;
+    if (!isHitSite || skipAutoLogin) return;
     const deadline = Date.now() + 10000;
     const tid = setInterval(async () => {
       const done = await doHitAutoLogin();
