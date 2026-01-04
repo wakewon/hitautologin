@@ -551,7 +551,7 @@
     const globalConsentRadio = document.querySelector('input[type="radio"][value="_shib_idp_globalConsent"]');
 
     if (globalConsentRadio && proceedBtn) {
-      // 选中“不要再次提示我”
+      // 选中"不要再次提示我"
       if (!globalConsentRadio.checked) {
         globalConsentRadio.checked = true;
         globalConsentRadio.dispatchEvent(new Event('change', { bubbles: true }));
@@ -567,10 +567,57 @@
     }
   }
 
+  // ====== 系统更新弹窗自动点击 ======
+  function handleSystemUpdateModal() {
+    // 检测 Ant Design Modal 确认弹窗
+    // 特征：.ant-modal-confirm 且内容包含"系统已更新，为保证使用体验，请刷新页面"
+    const modals = document.querySelectorAll('.ant-modal-confirm');
+
+    for (const modal of modals) {
+      const content = modal.querySelector('.ant-modal-confirm-content');
+      if (content && content.textContent.includes('系统已更新，为保证使用体验，请刷新页面')) {
+        // 找到"立即刷新"按钮并点击
+        const refreshBtn = modal.querySelector('.ant-modal-confirm-btns .ant-btn-primary');
+        if (refreshBtn) {
+          console.log('[HIT Auto Login] 检测到系统更新弹窗，自动点击刷新按钮');
+          refreshBtn.click();
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  // 使用 MutationObserver 监听弹窗出现
+  function observeSystemUpdateModal() {
+    // 先检查一次当前页面
+    handleSystemUpdateModal();
+
+    // 监听 DOM 变化
+    const observer = new MutationObserver((mutations) => {
+      for (const mutation of mutations) {
+        if (mutation.addedNodes.length > 0) {
+          // 延迟一小段时间确保 DOM 完全渲染
+          setTimeout(() => {
+            handleSystemUpdateModal();
+          }, 100);
+        }
+      }
+    });
+
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+  }
+
   async function boot() {
     LANG = await store.get('lang', 'zh');
     const fabOn = await store.get(FAB_KEY, true);
     if (fabOn) await createFab();
+
+    // 启动系统更新弹窗监听
+    observeSystemUpdateModal();
 
     if (document.readyState === 'loading') {
       document.addEventListener('DOMContentLoaded', () => {
