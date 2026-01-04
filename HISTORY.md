@@ -1,5 +1,12 @@
 # 更新历史 (History)
 
+## v1.3.2 (2026-01-04)
+- **新增功能**：新增系统更新弹窗自动点击刷新功能（自动检测并点击"立即刷新"按钮）。
+- **新增功能**：新增页面 Ant Design Float Button 自动位置调整，避免与 HIT 悬浮按钮重叠。
+- **新增功能**：使用 MutationObserver 持续监控动态加载的悬浮按钮，确保自动适配。
+- **修复 Bug**：绕过 `mail.hit.edu.cn` 的自动登录功能，解决兼容性问题（Issue #4）。
+- **同步**：所有平台代码同步更新（Chrome / Edge / Firefox / Tampermonkey）。
+
 ## v1.3.1 (2025-12-03)
 - **修复 Bug**：修复了在 Firefox 和 iOS Safari 浏览器中，页面底部会出现不应显示的纯文字内容的问题。
 - **重构**：Tampermonkey 脚本的悬浮按钮（FAB）和遮罩层重构为使用 **Shadow DOM**，彻底隔离样式，避免与页面样式冲突。
