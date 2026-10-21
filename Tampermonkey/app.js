@@ -2,8 +2,8 @@
 // @name         HIT 校园网站自动登录2.0
 // @namespace    https://github.com/TerrorAWM
 // @updateURL    https://greasyfork.org/zh-CN/scripts/507678-hit-%E6%A0%A1%E5%9B%AD%E7%BD%91%E7%AB%99%E8%87%AA%E5%8A%A8%E7%99%BB%E5%BD%952-0
-// @version      1.3.2
-// @description  在 HIT 站点自动填充/登录；在所有页面都显示可折叠悬浮入口，便于随时跳转HIT内/外网与HIT-WLAN；支持WebVPN重定向与校外授权自动同意
+// @version      1.4.0
+// @description  严格识别 HIT 统一认证与 WLAN；支持学术网站自动选择哈工大、校外授权与 WebVPN 快捷入口
 // @author       Ricardo Zheng
 // @match        http://*/*
 // @match        https://*/*
@@ -45,7 +45,7 @@
   let rememberMe_ids = ["rememberMe", "remember", "stayLogged"];
   let login_submit_ids = ["login_submit", "login", "submitButton", "btn-login", "submit"];
   let errorTip_ids = ["showErrorTip"];
-  let captcha_ids = ["captcha-id", "layui-layer1", "captcha-box"];
+  let captcha_ids = ["captcha-id", "captcha-box"];
 
   // 外部自定义接口
   function setCustomIds(options) {
@@ -58,36 +58,50 @@
   }
 
   // ====== 工具函数 ======
-  function byIds(ids) {
+  function byIds(ids, root = document) {
     for (let i = 0; i < ids.length; i++) {
       const el = document.getElementById(ids[i]);
-      if (el) return el;
+      if (el && root.contains(el)) return el;
     }
     return null;
   }
   function q(sel) { return document.querySelector(sel); }
 
-  // 更鲁棒的查找：支持 id/name/autocomplete/placeholder/类型
-  function findUsernameInput() {
-    return byIds(username_ids)
-      || q('input[autocomplete="username"]')
-      || q('input[name="username"],input[name="user"],input[name="j_username"]')
-      || q('input[type="text"][placeholder*="用户名"],input[type="text"][placeholder*="学号"]')
-      || q('input[type="text"],input[type="email"]');
+  function isVisible(el) {
+    if (!el?.isConnected || el.closest('[hidden], [inert], [aria-hidden="true"]')) return false;
+    const style = getComputedStyle(el);
+    return style.display !== 'none' && style.visibility !== 'hidden' && el.getClientRects().length > 0;
   }
-  function findPasswordInput() {
-    return byIds(password_ids)
-      || q('input[autocomplete="current-password"],input[autocomplete="password"]')
-      || q('input[name="password"],input[name="j_password"]')
-      || q('input[type="password"]');
+
+  // 地址是必要条件；HIT 子站自己的表单（包括 WebVPN 中的表单）不能读取校园密码。
+  function loginRoute() {
+    if (location.protocol !== 'https:' || skipAutoLogin) return null;
+    if (location.hostname === 'ids.hit.edu.cn' && /^\/authserver\/login\/?$/.test(location.pathname)) return 'cas';
+    if (location.hostname === 'webportal.hit.edu.cn' && /^\/(?:srun_portal_(?:pc|phone)\/?|index\.html)?$/.test(location.pathname)) return 'wlan';
+    return null;
   }
-  function findRememberMe() {
-    return byIds(rememberMe_ids)
-      || q('input[type="checkbox"][name*="remember"],input[type="checkbox"][id*="remember"]');
-  }
-  function findLoginButton() {
-    return byIds(login_submit_ids)
-      || q('button[type="submit"],input[type="submit"],button[id*="login"],button[name*="login"]');
+
+  function loginContext() {
+    const route = loginRoute();
+    let root;
+    if (route === 'cas') {
+      root = q('form#pwdFromId, form#casLoginForm');
+      if (!root || root.method.toLowerCase() !== 'post') return null;
+      const action = new URL(root.action, location.href);
+      if (action.origin !== location.origin || !/^\/authserver\/login\/?$/.test(action.pathname)) return null;
+      if (!root.querySelector('input[name="execution"]') || !root.querySelector('input[name="_eventId"]')) return null;
+    } else if (route === 'wlan') {
+      root = q('.panel-login');
+      if (!root || !q('input#ac_id[type="hidden"]')) return null;
+    } else return null;
+
+    const username = byIds(username_ids, root);
+    const password = byIds(password_ids, root);
+    const button = byIds(login_submit_ids, root);
+    if (!username?.matches('input[type="text"], input[type="email"]') || !password?.matches('input[type="password"]')) return null;
+    if (![username, password, button].every(isVisible) || username.disabled || password.disabled || username.readOnly || password.readOnly) return null;
+    if (route === 'cas' && (username.form !== root || password.form !== root)) return null;
+    return { root, username, password, button, remember: byIds(rememberMe_ids, root) };
   }
 
   function setInputValue(el, value) {
@@ -100,11 +114,6 @@
     } catch (_) { el.value = value; }
     el.dispatchEvent(new Event('input', { bubbles: true }));
     el.dispatchEvent(new Event('change', { bubbles: true }));
-  }
-
-  function pageLooksLoggedIn() {
-    // 简单：当用户名/密码框均不存在时认为已登录或非登录页
-    return !(findUsernameInput() || findPasswordInput());
   }
 
   // ====== “接管中”浮层 ======
@@ -187,6 +196,13 @@
       #hit-fab-toggle{ width:48px; height:48px; border-radius:50%; border:none; cursor:pointer; background:#005375; color:#fff;
         font-weight:700; font-size:14px; box-shadow:0 8px 20px rgba(0,0,0,.25); transition: transform 0.2s; }
       #hit-fab-toggle:hover { transform: scale(1.05); }
+      #hit-institution-login{ position:absolute; right:60px; bottom:0; min-width:132px; min-height:44px;
+        padding:10px 16px; border:0; border-radius:24px; background:#005375; color:white; cursor:pointer;
+        font:600 14px system-ui; box-shadow:0 6px 20px rgba(0,0,0,.2); white-space:nowrap; }
+      #hit-institution-login:hover{ background:#006c93; }
+      #hit-institution-status{ position:absolute; right:0; bottom:54px; width:260px; padding:8px 12px;
+        border-radius:10px; background:#fff; color:#333; font-size:12px; box-shadow:0 3px 12px rgba(0,0,0,.15); }
+      #hit-institution-status:empty{ display:none; }
       #hit-fab-panel{ position:absolute; right:0; bottom:60px; min-width:260px; max-width:86vw; background:#fff; color:#111;
         border-radius:14px; padding:12px; box-shadow:0 16px 40px rgba(0,0,0,.25); display:none;
         transform-origin: bottom right; animation: hit-pop-in 0.2s cubic-bezier(0.16, 1, 0.3, 1); }
@@ -202,6 +218,7 @@
 
       @media (prefers-color-scheme: dark) {
         #hit-fab-panel { background: #1f2937; color: #f3f4f6; box-shadow: 0 16px 40px rgba(0,0,0,.5); }
+        #hit-institution-status { background: #1f2937; color: #f3f4f6; }
         .hit-fab-btn { background: #374151; color: #e5e7eb; }
         .hit-fab-btn:hover { background: #4b5563; }
         .hit-fab-sec { border-top-color: #4b5563; }
@@ -227,8 +244,11 @@
     style.textContent = getFabCss();
     shadow.appendChild(style);
 
+    const academicAdapter = institutionAdapter();
     const container = document.createElement('div');
     container.innerHTML = `
+      ${academicAdapter ? `<button id="hit-institution-login" title="自动进入机构登录并选择哈尔滨工业大学">哈工大登录</button>
+        <div id="hit-institution-status" role="status" aria-live="polite"></div>` : ''}
       <button id="hit-fab-toggle" title="HIT 快捷入口">HIT</button>
       <div id="hit-fab-panel" role="dialog" aria-label="HIT 快捷入口">
         <div class="hit-fab-title">常用入口</div>
@@ -252,7 +272,7 @@
               <button class="hit-fab-btn" id="hit-fab-set-password">设置密码</button>
               <button class="hit-fab-btn" id="hit-fab-toggle-autologin">切换自动登录</button>
               <button class="hit-fab-btn" id="hit-fab-toggle-idp">切换校外授权</button>
-              <button class="hit-fab-btn" id="hit-fab-trigger-login" style="display:none;">手动接管登录</button>
+              ${loginRoute() ? '<button class="hit-fab-btn" id="hit-fab-trigger-login">手动接管登录</button>' : ''}
             </div>
           </div>
         ` : ``}
@@ -266,6 +286,7 @@
 
     const panel = shadow.getElementById('hit-fab-panel');
     const toggle = shadow.getElementById('hit-fab-toggle');
+    shadow.getElementById('hit-institution-login')?.addEventListener('click', startInstitutionLogin);
 
     // 展开/收起
     toggle.addEventListener('click', (e) => {
@@ -351,8 +372,8 @@
         renderKV();
         alert(!cur ? "校外授权自动同意已开启" : "校外授权自动同意已关闭");
       });
-      shadow.getElementById('hit-fab-trigger-login').addEventListener('click', () => {
-        triggerAutoLoginOnce(); // 立即强制尝试一次
+      shadow.getElementById('hit-fab-trigger-login')?.addEventListener('click', () => {
+        triggerAutoLoginOnce();
       });
     }
 
@@ -483,6 +504,286 @@
     });
   }
 
+  // ====== 学术网站：机构选择与一键入口（外站绝不读取校园账号密码） ======
+  const HIT_IDP = 'https://idp.hit.edu.cn/idp/shibboleth';
+  const INSTITUTION_KEY = 'institutionAutoSelect';
+  const INSTITUTION_PENDING_KEY = 'institutionLoginPending';
+  const INSTITUTION_LOG_KEY = 'institutionFailures';
+  const atyponHosts = ['dl.acm.org', 'arc.aiaa.org', 'ascelibrary.org', 'epubs.siam.org',
+    'www.pnas.org', 'www.annualreviews.org', 'www.tandfonline.com', 'www.icevirtuallibrary.com'];
+  const silverchairHosts = ['pubs.acs.org', 'asmedigitalcollection.asme.org', 'pubs.aip.org', 'academic.oup.com', 'iwaponline.com'];
+  const INSTITUTION_ADAPTERS = [
+    { id: 'cnki', hosts: ['cnki.net', 'www.cnki.net', 'kns.cnki.net', 'gongjushu.cnki.net', 'fsso.cnki.net'],
+      entry: () => 'https://fsso.cnki.net/', page: () => location.hostname === 'fsso.cnki.net',
+      search: '#o', results: '#allschoollist a' },
+    { id: 'wiley', hosts: ['onlinelibrary.wiley.com', 'agupubs.onlinelibrary.wiley.com', 'iam.atypon.com'],
+      entry: () => `https://${location.hostname === 'iam.atypon.com' ? 'onlinelibrary.wiley.com' : location.hostname}/action/ssostart`,
+      page: () => /^\/action\/ssostart\/?$/.test(location.pathname), search: '#searchInstitution',
+      results: '#autoComplete_list_1 a, #autoComplete_list_1 [role="option"]', federation: '#federation' },
+    { id: 'silverchair', hosts: silverchairHosts, entry: () => `https://${location.hostname}/institutional-login`,
+      page: () => /^\/institutional-login\/?$/.test(location.pathname), search: '#institutionSearchInput',
+      results: '.institution-search__result-item', federation: '#FederationDropdown',
+      select: '#InstitutionDropdown', submit: '#shibbolethSelectBtn' },
+    { id: 'atypon', hosts: atyponHosts, entry: () => `https://${location.hostname}/action/ssostart`,
+      page: () => /^\/action\/ssostart\/?$/.test(location.pathname), search: '#searchInstitution',
+      results: '#autoComplete_list_1 a, [role="option"]', federation: '#federation' },
+    { id: 'springer', hosts: ['link.springer.com', 'www.nature.com', 'nature.com', 'materials.springer.com', 'wayf.springernature.com'],
+      entry: () => 'https://wayf.springernature.com/?redirect_uri=' + encodeURIComponent(location.href),
+      page: () => location.hostname === 'wayf.springernature.com', search: '#autocomplete-input',
+      results: '[id^="eds-c-autocomplete-dropdown-option-"]', submit: '#institution-submit' },
+    { id: 'elsevier', hosts: ['www.sciencedirect.com', 'sciencedirect.com', 'id.elsevier.com', 'auth.elsevier.com',
+      'www.scopus.com', 'www.engineeringvillage.com', 'www.scival.com'],
+      entry: () => {
+        if (location.hostname === 'www.scopus.com') return 'https://www.scopus.com/pages/checkAccess?referralUrl=' + encodeURIComponent(location.href);
+        if (location.hostname === 'www.engineeringvillage.com') return 'https://www.engineeringvillage.com/rest/oauth2/authorization/els-client-login';
+        if (location.hostname === 'www.scival.com') return 'https://www.scival.com/idp/start';
+        return 'https://www.sciencedirect.com/user/institution/login?targetURL=' + encodeURIComponent(location.pathname + location.search);
+      },
+      page: () => location.hostname === 'id.elsevier.com' && !!q('#wayfEmailForm'),
+      search: '#wayfEmailForm #bdd-email', results: '#bdd-institution-resultList button', submit: '#bdd-els-searchBtn' },
+    { id: 'cambridge', hosts: ['www.cambridge.org', 'shibboleth.cambridge.org', 'shibboleth-discovery.cambridge.org'],
+      entry: () => 'https://shibboleth.cambridge.org/CJOShibb2/index?app=' + encodeURIComponent('https://www.cambridge.org/core/shibboleth?ref=' + encodeURIComponent(location.pathname)),
+      page: () => location.hostname === 'shibboleth-discovery.cambridge.org' && location.pathname.startsWith('/discovery/WAYF/'),
+      search: '#institution', results: '[role="option"]', submitText: /^Continue to login$/i },
+    { id: 'carsi', hosts: ['sage.cnpereading.com', 'ds.carsi.edu.cn'],
+      entry: () => location.hostname === 'ds.carsi.edu.cn' ? location.href : 'https://sage.cnpereading.com/login?redirect=/action/showLogin',
+      page: () => location.hostname === 'ds.carsi.edu.cn' ? /^\/login\/index(?:_en)?\.html$/.test(location.pathname) : location.pathname === '/login',
+      entryButtonText: /^通过 CARSI 登录$/, query: '哈尔滨工业大学',
+      search: '#idpForm #show', results: '#idpForm .typeahead [role="option"]', submit: '#idpSkipButton' },
+    { id: 'ieee', hosts: ['ieeexplore.ieee.org'],
+      entry: () => 'https://ieeexplore.ieee.org/servlet/wayf.jsp?entityId=' + encodeURIComponent(HIT_IDP) + '&url=' + encodeURIComponent(location.href),
+      page: () => !!q('.inst-typeahead-input'), direct: true },
+    // 以下入口基于图书馆资源详情页；验证受限情况见 docs/library-adapters.md。
+    { id: 'emerald', hosts: ['www.emerald.com', 'www.emeraldinsight.com'],
+      entry: () => 'https://www.emerald.com/start-session?idp=' + encodeURIComponent(HIT_IDP), page: () => false },
+    { id: 'jove', hosts: ['www.jove.com'],
+      entry: () => 'https://www.jove.com/Shibboleth.sso/Login?entityID=' + encodeURIComponent(HIT_IDP) + '&target=' + encodeURIComponent('https://www.jove.com/shibboleth/wayf_login.php?return_page=' + location.href), page: () => false },
+    { id: 'dds', hosts: ['shibboleth.guodao.cn', 'www.guodao.cn', 'www.oadds.cn'],
+      entry: () => 'https://shibboleth.guodao.cn/Shibboleth.sso/Login?entityID=' + encodeURIComponent(HIT_IDP), page: () => false }
+  ];
+
+  function institutionAdapter() {
+    if (location.protocol !== 'https:') return null;
+    return INSTITUTION_ADAPTERS.find(adapter => adapter.hosts.includes(location.hostname)) || null;
+  }
+
+  function isHitInstitutionName(value) {
+    // 允许中英混排和重复标签；不接受缩写 HIT、附属医院或其他校区。
+    const name = (value || '').normalize('NFKC').trim().toLowerCase();
+    if (!name || /威海|深圳|weihai|shenzhen/.test(name)) return false;
+    return name.replace(/哈尔滨工业大学|harbin\s+institute\s+of\s+technology|harbin\s+inst\s+of\s+technology/g, '')
+      .replace(/[\s(),，（）·-]/g, '') === '';
+  }
+
+  function hasHitEntity(value) {
+    if (value === HIT_IDP) return true;
+    try {
+      const url = new URL(value, location.href);
+      return ['entityID', 'entityId', 'idp'].some(key => url.searchParams.get(key) === HIT_IDP);
+    } catch (_) { return false; }
+  }
+
+  function isHitInstitution(el) {
+    const label = el.textContent?.trim() || '';
+    if (/威海|深圳|weihai|shenzhen/i.test(label)) return false;
+    const entity = el.getAttribute('data-shibboleth-id') || el.getAttribute('data-entityid') || el.getAttribute('href') || el.value;
+    // 有明确实体 ID 时以实体为准，避免名称匹配却指向另一所学校。
+    if (entity && (el.hasAttribute('data-shibboleth-id') || /^https?:/i.test(entity) || /[?&](?:entityID|entityId|idp)=/.test(entity))) return hasHitEntity(entity);
+    return isHitInstitutionName(label);
+  }
+
+  let institutionState = null;
+  let institutionTimer = null;
+  let institutionObserver = null;
+
+  function institutionStatus(message) {
+    const status = fabShadowRoot?.getElementById('hit-institution-status');
+    if (status) status.textContent = message;
+  }
+
+  function recordInstitutionFailure(reason) {
+    const failures = GM_getValue(INSTITUTION_LOG_KEY, []);
+    const last = failures[failures.length - 1];
+    if (last?.host === location.hostname && last?.reason === reason && Date.now() - last.time < 60000) return;
+    // 不保存完整 URL、查询参数、页面内容或任何账号信息。
+    GM_setValue(INSTITUTION_LOG_KEY, [...failures.slice(-29), { host: location.hostname, reason, time: Date.now() }]);
+  }
+
+  function newInstitutionState(requested = false) {
+    const pending = GM_getValue(INSTITUTION_PENDING_KEY, null);
+    return { href: location.href, started: 0, steps: 0, selected: false, stopped: false, actions: new WeakMap(),
+      requested: requested || (pending?.expires > Date.now() && pending.adapter === institutionAdapter()?.id) };
+  }
+
+  function institutionEnabled() {
+    const pending = GM_getValue(INSTITUTION_PENDING_KEY, null);
+    return GM_getValue(INSTITUTION_KEY, true) ||
+      (pending?.expires > Date.now() && pending.adapter === institutionAdapter()?.id);
+  }
+
+  function actOnInstitution(el, action, fn) {
+    if (!isVisible(el) || el.disabled || el.getAttribute('aria-disabled') === 'true') return false;
+    let actions = institutionState.actions.get(el);
+    if (!actions) { actions = new Set(); institutionState.actions.set(el, actions); }
+    if (actions.has(action)) return false;
+    if (++institutionState.steps > 12) {
+      institutionState.stopped = true;
+      recordInstitutionFailure('操作次数达到上限，请手动完成机构登录');
+      institutionStatus('已暂停，请手动完成或点击重试');
+      return false;
+    }
+    actions.add(action);
+    fn();
+    return true;
+  }
+
+  function navigateInstitution(url) {
+    // 防止单点登录配置错误导致返回机构页后无限跳转；存储不可用时仍受本页步骤限制。
+    try {
+      const key = 'hit-institution-nav:' + location.hostname + location.pathname;
+      const previous = JSON.parse(sessionStorage.getItem(key) || 'null');
+      const count = previous && Date.now() - previous.time < 300000 ? previous.count : 0;
+      if (count >= 2) {
+        institutionState.stopped = true;
+        recordInstitutionFailure('机构登录反复返回，已停止跳转');
+        institutionStatus('登录反复返回，请手动检查');
+        return false;
+      }
+      sessionStorage.setItem(key, JSON.stringify({ count: count + 1, time: Date.now() }));
+    } catch (_) { /* 隐私模式可能禁用 sessionStorage */ }
+    institutionStatus('正在前往哈工大认证…');
+    location.assign(url);
+    return true;
+  }
+
+  function runInstitutionStep() {
+    const adapter = institutionAdapter();
+    if (!adapter || !institutionEnabled()) return;
+    if (!institutionState || institutionState.href !== location.href) institutionState = newInstitutionState();
+    if (institutionState.stopped) return;
+    if (/just a moment|请稍候|access denied|安全验证|应用防火墙/i.test(document.title)) {
+      institutionStatus('请先完成人机验证，完成后自动继续');
+      if (!institutionState.challengeLogged) recordInstitutionFailure('人机验证或防火墙拦截');
+      institutionState.challengeLogged = true;
+      return;
+    }
+    institutionState.challengeLogged = false;
+    if (!adapter.page()) return;
+    if (adapter.entryButtonText && institutionState.requested) {
+      const entry = [...document.querySelectorAll('button')].find(el => adapter.entryButtonText.test(el.textContent.trim()) && isVisible(el));
+      if (entry && actOnInstitution(entry, 'entry', () => entry.click())) return;
+    }
+    if (adapter.direct) {
+      const search = q('.inst-typeahead-input');
+      if (isVisible(search)) actOnInstitution(search, 'navigate', () => navigateInstitution(adapter.entry()));
+      return;
+    }
+
+    const search = adapter.search && q(adapter.search);
+    const federation = adapter.federation && q(adapter.federation);
+    const select = adapter.select && q(adapter.select);
+    const results = adapter.results ? [...document.querySelectorAll(adapter.results)].filter(isVisible) : [];
+    if (![search, federation, select].some(isVisible) && !results.length) {
+      if (institutionState.requested) {
+        if (!institutionState.started) institutionState.started = Date.now();
+        if (Date.now() - institutionState.started > 30000) {
+          institutionState.stopped = true;
+          recordInstitutionFailure('未检测到可用的机构选择控件');
+          institutionStatus('未找到机构选校控件，请手动检查');
+        }
+      }
+      return;
+    }
+    const otherQuery = search?.value && !/^harbin$/i.test(search.value.trim()) && !isHitInstitutionName(search.value);
+    const otherFederation = federation?.selectedIndex > 0 && !/CARSI/i.test(federation.selectedOptions[0]?.textContent || '');
+    if (!institutionState.requested && (otherQuery || otherFederation)) {
+      institutionState.stopped = true;
+      institutionStatus('保留你已选择的机构；点击按钮可改为哈工大');
+      return;
+    }
+    if (!institutionState.started) institutionState.started = Date.now();
+    if (Date.now() - institutionState.started > 30000) {
+      institutionState.stopped = true;
+      const missingSchool = isVisible(select) && select.options.length > 1 && ![...select.options].some(isHitInstitution);
+      recordInstitutionFailure(missingSchool ? '机构学校列表中未提供哈尔滨工业大学' : '30 秒内未能完成学校选择');
+      institutionStatus('选校超时，可点击“哈工大登录”重试');
+      return;
+    }
+
+    const hit = !institutionState.selected && results.find(isHitInstitution);
+    if (hit && actOnInstitution(hit, 'select', () => hit.click())) {
+      institutionState.selected = true;
+      institutionStatus('已选择哈尔滨工业大学，正在继续…');
+      return;
+    }
+    if (!institutionState.selected && isVisible(select) && !select.disabled) {
+      const option = [...select.options].find(option => !option.disabled && isHitInstitution(option));
+      if (option && actOnInstitution(select, 'select', () => {
+        select.value = option.value;
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+      })) { institutionState.selected = true; return; }
+    }
+    // 不覆盖手动输入；搜索只触发一次，等待异步结果。
+    if (!institutionState.selected && isVisible(search) && (!search.value || otherQuery) && !search.readOnly) {
+      if (actOnInstitution(search, 'search', () => setInputValue(search, adapter.query || 'Harbin'))) {
+        institutionStatus('正在查找哈尔滨工业大学…');
+        return;
+      }
+    }
+    // 无搜索控件或搜索无结果时，才尝试 CARSI 联盟下拉框。
+    if (!institutionState.selected && isVisible(federation) && !federation.disabled && (!isVisible(search) || Date.now() - institutionState.started > 6000)) {
+      const option = [...federation.options].find(option => /\bCARSI\b/i.test(option.textContent));
+      if (option && (!federation.value || !federation.selectedOptions[0]?.textContent.match(/CARSI/i))) {
+        if (actOnInstitution(federation, 'federation', () => {
+          federation.value = option.value;
+          federation.dispatchEvent(new Event('change', { bubbles: true }));
+        })) return;
+      }
+    }
+    // 只有确实选中过本校结果才能点击提交，绝不对个人账号表单按 Enter。
+    if (institutionState.selected) {
+      const submit = adapter.submit ? q(adapter.submit) : [...document.querySelectorAll('button')].find(el => adapter.submitText?.test(el.textContent.trim()));
+      if (submit) actOnInstitution(submit, 'submit', () => submit.click());
+    }
+  }
+
+  function scheduleInstitutionStep() {
+    if (institutionTimer) return;
+    institutionTimer = setTimeout(() => { institutionTimer = null; runInstitutionStep(); }, 200);
+  }
+
+  function startInstitutionLogin() {
+    const adapter = institutionAdapter();
+    if (!adapter) return false;
+    institutionState = newInstitutionState(true);
+    GM_setValue(INSTITUTION_PENDING_KEY, { adapter: adapter.id, expires: Date.now() + 180000 });
+    // 已在机构页就直接选校；在文章或首页则进入站点的机构登录流程。
+    if (adapter.page()) { runInstitutionStep(); return true; }
+    return navigateInstitution(adapter.entry());
+  }
+
+  function observeInstitutionLogin() {
+    if (!institutionAdapter() || institutionObserver) return;
+    institutionState = newInstitutionState();
+    // 人工修改学校输入/下拉框时立即让出控制权，按钮可重新启动。
+    document.addEventListener('input', event => {
+      if (!event.isTrusted || !event.target.matches?.('input,select')) return;
+      const adapter = institutionAdapter();
+      const selectors = [adapter?.search, adapter?.select, adapter?.federation].filter(Boolean).join(',');
+      if (selectors && event.target.matches(selectors)) {
+        institutionState.stopped = true;
+        institutionStatus('已交由你手动选择；可点击按钮重新开始');
+      }
+    }, true);
+    institutionObserver = new MutationObserver(scheduleInstitutionStep);
+    institutionObserver.observe(document.body, { childList: true, subtree: true, attributes: true,
+      attributeFilter: ['style', 'class', 'hidden', 'disabled', 'aria-expanded'] });
+    window.addEventListener('popstate', scheduleInstitutionStep);
+    // 低频计时同时处理框架延迟挂载、SPA 路由和超时；每次操作仍按元素去重。
+    setInterval(scheduleInstitutionStep, 1000);
+    scheduleInstitutionStep();
+  }
+
   // ====== Tampermonkey 菜单 ======
   GM_registerMenuCommand("查看当前设置", function () {
     const savedUsername = GM_getValue("username", "未设置");
@@ -530,162 +831,141 @@
     GM_setValue("idpAutoAuth", false);
     alert("已关闭校外授权自动同意!");
   });
+  GM_registerMenuCommand('哈工大一键机构登录', startInstitutionLogin);
+  GM_registerMenuCommand('开启/关闭学术网站自动选校', () => {
+    const enabled = !GM_getValue(INSTITUTION_KEY, true);
+    GM_setValue(INSTITUTION_KEY, enabled);
+    if (!enabled) GM_setValue(INSTITUTION_PENDING_KEY, null);
+    institutionState = newInstitutionState();
+    institutionStatus(enabled ? '自动选校已开启' : '自动选校已关闭，仍可点击一键登录');
+    alert(enabled ? '自动选校已开启' : '自动选校已关闭');
+    if (enabled) scheduleInstitutionStep();
+  });
+  GM_registerMenuCommand('查看学术网站适配失败记录', () => {
+    const failures = GM_getValue(INSTITUTION_LOG_KEY, []);
+    alert(failures.length ? failures.map(item => `${new Date(item.time).toLocaleString()} ${item.host}：${item.reason}`).join('\n') : '暂无失败记录');
+  });
+  GM_registerMenuCommand('清空学术网站适配失败记录', () => GM_setValue(INSTITUTION_LOG_KEY, []));
 
   // ====== 自动登录核心 ======
+  const attemptedLoginForms = new WeakSet();
+  let loginRetryTimer = null;
+  let loginStopped = false;
+
+  function loginProblem() {
+    const error = byIds(errorTip_ids);
+    const message = error?.title || error?.textContent || '';
+    if (isVisible(error) && /该账号非常用账号|用户名密码有误|图形动态码错误/.test(message)) return message.trim();
+    const captcha = [...captcha_ids.map(id => document.getElementById(id)),
+      q('#captcha'), q('.geetest_panel'), q('.yidun_popup')].find(isVisible);
+    return captcha ? '需要手动完成验证码' : '';
+  }
+
+  function stopLogin(message) {
+    loginStopped = true;
+    if (/该账号非常用账号|用户名密码有误/.test(message)) GM_setValue('autoLogin', false);
+    hideOverlay();
+    console.info('[HIT Auto Login]', message);
+  }
+
   function doHitAutoLogin({ force = false } = {}) {
-    if (!isHitSite && !force) return false; // 非 HIT 域默认不执行
+    // force 只覆盖“自动点击”开关，不能越过域名、路径和表单校验。
+    if (loginStopped || interrupted) return true;
+    const context = loginContext();
+    if (!context) return false;
+    if (attemptedLoginForms.has(context.root)) return true;
+    const problem = loginProblem();
+    if (problem) { stopLogin(problem); return true; }
 
-    const savedUsername = GM_getValue("username", "");
-    const savedPassword = GM_getValue("password", "");
-    const autoLogin = GM_getValue("autoLogin", false);
+    const savedUsername = GM_getValue('username', '');
+    const savedPassword = GM_getValue('password', '');
+    const autoLogin = GM_getValue('autoLogin', false);
+    // 不覆盖用户已输入的内容，也不提交空表单。
+    if (context.username.value && savedUsername && context.username.value !== savedUsername) return true;
+    if (!context.username.value && savedUsername) setInputValue(context.username, savedUsername);
+    if (!context.password.value && savedPassword && savedUsername && context.username.value === savedUsername) setInputValue(context.password, savedPassword);
+    if ((!autoLogin && !force) || !context.username.value.trim() || !context.password.value || context.button.disabled) return true;
+    if (context.remember && !context.remember.checked) context.remember.click();
 
-    const usernameInput = findUsernameInput();
-    const passwordInput = findPasswordInput();
-    const rememberMe = findRememberMe();
-    const loginButton = findLoginButton();
-
-    const errorTip = byIds(errorTip_ids);
-    const captchaDlg = byIds(captcha_ids);
-
-    if (errorTip && (errorTip.title?.includes("该账号非常用账号或用户名密码有误") ||
-      errorTip.title?.includes("图形动态码错误"))) {
-      GM_setValue("autoLogin", false);
-      hideOverlay();
-      alert("登录失败: " + errorTip.title + "。自动登录已关闭。");
-      return true;
-    }
-    if (captchaDlg) {
-      GM_setValue("autoLogin", false);
-      hideOverlay();
-      alert("检测到验证码弹窗，自动登录已关闭。");
-      return true;
-    }
-
-    // 没检测到表单 —— 返回 false 让外层继续重试
-    if (!usernameInput || !passwordInput) return false;
-
+    attemptedLoginForms.add(context.root);
     showOverlay();
-
-    if (savedUsername) setInputValue(usernameInput, savedUsername);
-    if (savedPassword) setInputValue(passwordInput, savedPassword);
-    if (rememberMe) rememberMe.checked = true;
-
-    if (!autoLogin && !force) {
-      // 只填不点
-      setTimeout(() => { if (!interrupted) hideOverlay(); }, 150);
-      return true;
-    }
-
-    if (loginButton) {
-      setTimeout(() => {
-        if (!interrupted) { try { loginButton.click(); } catch (_) { } }
-      }, 150);
-    }
-
-    // 轮询直到表单消失（认为登录完成）
+    const deadline = Date.now() + 20000;
+    setTimeout(() => {
+      if (interrupted || loginStopped || loginContext()?.root !== context.root || loginProblem() ||
+        (!force && !GM_getValue('autoLogin', false))) { hideOverlay(); return; }
+      context.button.click();
+    }, 150);
     pollTimer = setInterval(() => {
-      if (interrupted) { hideOverlay(); return; }
-      if (pageLooksLoggedIn()) { hideOverlay(); }
+      const problem = loginProblem();
+      if (problem) { stopLogin(problem); return; }
+      if (interrupted || !loginContext() || Date.now() >= deadline) hideOverlay();
     }, 500);
-
     return true;
   }
 
-  // 在 HIT 域：最多 10s，每 300ms 重试一次，适配 ids.hit.edu.cn 的异步渲染
   function autoLoginWithRetry() {
-    if (!isHitSite || skipAutoLogin) return;
-    const deadline = Date.now() + 10000;
-    const tid = setInterval(() => {
-      const done = doHitAutoLogin(); // 成功执行（找到表单）或命中错误/验证码会返回 true
-      if (done || Date.now() > deadline) clearInterval(tid);
+    if (!loginRoute() || loginRetryTimer || loginStopped || interrupted) return;
+    if (doHitAutoLogin()) return;
+    const deadline = Date.now() + 30000;
+    loginRetryTimer = setInterval(() => {
+      if (doHitAutoLogin() || Date.now() >= deadline || !loginRoute()) {
+        clearInterval(loginRetryTimer);
+        loginRetryTimer = null;
+      }
     }, 300);
   }
 
   function triggerAutoLoginOnce() {
-    // 手动接管：强制尝试一次（即使非 HIT 域也尝试）
-    doHitAutoLogin({ force: true });
+    if (pollTimer) return true;
+    interrupted = false;
+    loginStopped = false;
+    const context = loginContext();
+    if (context) attemptedLoginForms.delete(context.root);
+    return doHitAutoLogin({ force: true });
   }
 
   // ====== IDP 自动授权功能 ======
+  const attemptedConsents = new WeakSet();
   function handleIdpAuth() {
-    if (location.hostname !== 'idp.hit.edu.cn') return;
-
-    // 检查开关
-    const enabled = !!GM_getValue("idpAutoAuth", true);
-    if (!enabled) return;
-
-    // 1. 身份认证与隐私声明页
-    // 页面特征：checkbox#accept, button[name="_eventId_proceed"]
-    const acceptBox = document.getElementById('accept');
-    const proceedBtn = document.querySelector('button[name="_eventId_proceed"]');
-
-    if (acceptBox && proceedBtn) {
-      // 自动勾选
-      if (!acceptBox.checked) {
-        acceptBox.checked = true;
-        acceptBox.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-      // 提交
-      setTimeout(() => {
-        proceedBtn.click();
-      }, 200);
-
-      showOverlay();
-      const host = document.getElementById('hit-overlay-host');
-      const msg = host?.shadowRoot?.getElementById('hit-overlay-msg');
-      if (msg) msg.textContent = "正在自动同意校外访问授权...";
-      return;
-    }
-
-    // 2. 信息发布页 (Information Release)
-    // 页面特征：input[value="_shib_idp_globalConsent"], button[name="_eventId_proceed"]
-    const globalConsentRadio = document.querySelector('input[type="radio"][value="_shib_idp_globalConsent"]');
-
-    if (globalConsentRadio && proceedBtn) {
-      // 选中"不要再次提示我"
-      if (!globalConsentRadio.checked) {
-        globalConsentRadio.checked = true;
-        globalConsentRadio.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-      // 提交
-      setTimeout(() => {
-        proceedBtn.click();
-      }, 200);
-
-      showOverlay();
-      const host = document.getElementById('hit-overlay-host');
-      const msg = host?.shadowRoot?.getElementById('hit-overlay-msg');
-      if (msg) msg.textContent = "正在自动同意信息发布...";
-    }
+    if (location.protocol !== 'https:' || location.hostname !== 'idp.hit.edu.cn' ||
+      !location.pathname.startsWith('/idp/profile/') || interrupted || !GM_getValue('idpAutoAuth', true)) return;
+    const proceed = q('button[name="_eventId_proceed"]');
+    const form = proceed?.form;
+    if (!form || !isVisible(proceed) || proceed.disabled || attemptedConsents.has(proceed)) return;
+    const action = new URL(form.action, location.href);
+    if (action.origin !== location.origin || !action.pathname.startsWith('/idp/')) return;
+    const consent = form.querySelector('#accept') || form.querySelector('input[type="radio"][value="_shib_idp_globalConsent"]');
+    if (!consent || !isVisible(consent)) return;
+    if (!consent.checked) consent.click();
+    if (!consent.checked) return;
+    attemptedConsents.add(proceed);
+    showOverlay('正在自动同意校外访问授权…');
+    const href = location.href;
+    setTimeout(() => {
+      if (!interrupted && location.href === href && proceed.isConnected && !proceed.disabled && GM_getValue('idpAutoAuth', true)) proceed.click();
+    }, 200);
+    setTimeout(hideOverlay, 10000);
   }
 
-  // 启动
+  // 启动只执行一次；各任务自己处理异步渲染与去重。
   function boot() {
-    if (GM_getValue(FAB_KEY, true)) createFab(); // 尊重开关
-
-    // 启动系统更新弹窗监听
-    observeSystemUpdateModal();
-
-    if (document.readyState === 'loading') {
-      document.addEventListener('DOMContentLoaded', () => {
-        autoLoginWithRetry();
-        handleIdpAuth();
-      });
-      window.addEventListener('load', () => {
-        autoLoginWithRetry();
-        handleIdpAuth();
-      });
-    } else {
-      autoLoginWithRetry();
-      handleIdpAuth();
-      window.addEventListener('load', () => {
-        autoLoginWithRetry();
-        handleIdpAuth();
-      });
+    if (GM_getValue(FAB_KEY, true)) createFab();
+    if (isHitSite) observeSystemUpdateModal();
+    autoLoginWithRetry();
+    observeInstitutionLogin();
+    handleIdpAuth();
+    if (location.hostname === 'idp.hit.edu.cn') {
+      let consentTimer = null;
+      new MutationObserver(() => {
+        if (consentTimer) return;
+        consentTimer = setTimeout(() => { consentTimer = null; handleIdpAuth(); }, 200);
+      }).observe(document.body, { childList: true, subtree: true });
     }
+    if (loginRoute() === 'cas') GM_setValue(INSTITUTION_PENDING_KEY, null);
   }
-  boot();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot, { once: true });
+  else boot();
 
-  // 暴露 API
-  window.HITLoginAuto2 = { setCustomIds, triggerLogin: triggerAutoLoginOnce, showOverlay, hideOverlay, adjustFloatBtns: adjustPageFloatBtns };
+  window.HITLoginAuto2 = { setCustomIds, triggerLogin: triggerAutoLoginOnce, showOverlay, hideOverlay,
+    adjustFloatBtns: adjustPageFloatBtns, institutionLogin: startInstitutionLogin };
 })();
