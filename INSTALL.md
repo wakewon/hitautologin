@@ -20,6 +20,12 @@
 2. 点击「添加到 Firefox」
 3. 完成
 
+### 仓库开发版（无需原开发者账号）
+
+要使用本次新增的一键机构登录功能，可在仓库目录执行 `npm run build:firefox-dev`，然后在 Firefox 的 `about:debugging#/runtime/this-firefox` 临时加载生成的 `dist/firefox-dev/manifest.json`。开发包 ID 与商店版不同，安装后刷新目标网站并重新配置账号。重启 Firefox 后需再次临时加载。
+
+完整的准备、加载、更新、故障排查和长期安装步骤见 [Firefox 开发版安装说明](./docs/firefox-dev-install.md)。
+
 ---
 
 ## Tampermonkey 脚本版

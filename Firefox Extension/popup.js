@@ -2,8 +2,8 @@
 const $ = (id) => document.getElementById(id);
 
 // storage helpers
-const get = (key, defVal) => new Promise(res => chrome.storage.local.get([key], o => res(o[key] !== undefined ? o[key] : defVal)));
-const set = (key, val) => new Promise(res => chrome.storage.local.set({ [key]: val }, res));
+const get = async (key, defVal) => { const values = await browser.storage.local.get(key); return values[key] === undefined ? defVal : values[key]; };
+const set = (key, val) => browser.storage.local.set({ [key]: val });
 function debounce(fn, ms = 500) { let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); }; }
 
 const I18N = {
@@ -24,7 +24,16 @@ const I18N = {
     show_fab: "已显示悬浮按钮",
     hide_fab: "已隐藏悬浮按钮",
     cant_inject: "当前页面无法注入脚本，切换将于刷新后生效",
-    hint: "提示：在 HIT 域名页面将自动尝试登录。",
+    hint: "仅在已确认的统一认证/WLAN 页面填写；学术网站可一键选校。",
+    institution_auto: "学术网站自动选校",
+    institution_login: "哈工大机构登录",
+    institution_on: "自动选校已开启",
+    institution_off: "自动选校已关闭；仍可点击按钮执行一次",
+    institution_started: "已启动机构登录，请查看网页",
+    institution_unsupported: "当前页面未适配或尚未加载；请刷新学术网站后重试",
+    failures: "查看选校失败记录",
+    clear_failures: "清空失败记录",
+    no_failures: "暂无失败记录",
     idp_auth: "自动同意校外授权",
     enabled_idp: "已开启自动授权",
     disabled_idp: "已关闭自动授权",
@@ -48,7 +57,16 @@ const I18N = {
     show_fab: "Floating button shown",
     hide_fab: "Floating button hidden",
     cant_inject: "This page blocks injection. Change takes effect after refresh.",
-    hint: "Hint: Auto login triggers on HIT domains.",
+    hint: "Credentials are used only on verified HIT sign-in forms. Select HIT on academic sites with one click.",
+    institution_auto: "Auto-select HIT institution",
+    institution_login: "Sign in through HIT",
+    institution_on: "Institution selection enabled",
+    institution_off: "Auto-selection off; one-click sign-in remains available",
+    institution_started: "Institutional sign-in started. Check the page.",
+    institution_unsupported: "Page unsupported or not loaded. Reload the academic site and retry.",
+    failures: "Show institution failure records",
+    clear_failures: "Clear failure records",
+    no_failures: "No failure records",
     idp_auth: "Auto Authorize Off-campus",
     enabled_idp: "Auto auth enabled",
     disabled_idp: "Auto auth disabled",
@@ -68,10 +86,13 @@ function applyI18n() {
   $('labPass').textContent = tr('password');
   $('password').placeholder = tr('pass_ph');
   $('kvAuto').textContent = tr('auto');
-  $('kvAuto').textContent = tr('auto');
   $('kvFab').textContent = tr('fab');
   $('kvIdp').textContent = tr('idp_auth');
   $('btnWebVpn').textContent = tr('webvpn_reload');
+  $('kvInstitution').textContent = tr('institution_auto');
+  $('btnInstitutionLogin').textContent = tr('institution_login');
+  $('btnFailures').textContent = tr('failures');
+  $('btnClearFailures').textContent = tr('clear_failures');
   $('hint').textContent = tr('hint');
 }
 
@@ -81,11 +102,11 @@ const showMsg = (txt) => {
 };
 
 async function sendToActiveOrInject(msg) {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
   if (!tab?.id) return false;
   try {
-    await chrome.tabs.sendMessage(tab.id, msg);
-    return true;
+    const response = await browser.tabs.sendMessage(tab.id, msg);
+    return response?.ok === true;
   } catch {
     // Firefox MV2: content script 已经自动注入，这里不需要手动 inject
     // 如果失败，说明页面可能不支持或还未加载完成
@@ -102,6 +123,7 @@ async function init() {
   $('autologin').checked = !!(await get('autoLogin', false));
   $('fab').checked = !!(await get('fabEnabled', true));
   $('idpAuth').checked = !!(await get('idpAutoAuth', true));
+  $('institutionAutoSelect').checked = !!(await get('institutionAutoSelect', true));
 
   applyI18n();
 }
@@ -151,8 +173,8 @@ $('idpAuth').addEventListener('change', async (e) => {
 // 右上角"？" → 打开内置教程
 document.getElementById('help').addEventListener('click', async (e) => {
   e.preventDefault();
-  const url = chrome.runtime.getURL('help.html');
-  await chrome.tabs.create({ url });
+  const url = browser.runtime.getURL('help.html');
+  await browser.tabs.create({ url });
 });
 
 // WebVPN Reload Logic
@@ -172,13 +194,37 @@ function getWebVpnUrl(url) {
 }
 
 $('btnWebVpn').addEventListener('click', async () => {
-  const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
+  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
   if (!tab?.url) return;
 
   const newUrl = getWebVpnUrl(tab.url);
   if (newUrl) {
-    chrome.tabs.update(tab.id, { url: newUrl });
+    browser.tabs.update(tab.id, { url: newUrl });
   } else {
     showMsg(tr('invalid_url') || "Invalid URL");
   }
+});
+
+$('institutionAutoSelect').addEventListener('change', async e => {
+  await set('institutionAutoSelect', e.target.checked);
+  showMsg(tr(e.target.checked ? 'institution_on' : 'institution_off'));
+});
+$('btnInstitutionLogin').addEventListener('click', async () => {
+  const ok = await sendToActiveOrInject({ type: 'HIT_INSTITUTION_LOGIN' });
+  showMsg(tr(ok ? 'institution_started' : 'institution_unsupported'));
+});
+async function renderFailures() {
+  const failures = await get('institutionFailures', []);
+  $('failureList').textContent = failures.length
+    ? failures.map(item => `${new Date(item.time).toLocaleString()} ${item.host}: ${item.reason}`).join('\n')
+    : tr('no_failures');
+}
+$('btnFailures').addEventListener('click', async () => {
+  $('failureList').hidden = !$('failureList').hidden;
+  $('btnClearFailures').hidden = $('failureList').hidden;
+  if (!$('failureList').hidden) await renderFailures();
+});
+$('btnClearFailures').addEventListener('click', async () => {
+  await set('institutionFailures', []);
+  await renderFailures();
 });

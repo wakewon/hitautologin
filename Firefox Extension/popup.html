@@ -172,7 +172,7 @@
 <body>
   <header>
     <h1 id="ttl">HIT 自动登录</h1>
-    <div class="lang-row" style="display: none;">
+    <div class="lang-row">
       <label for="lang" class="kv" id="langLabel"></label>
       <select id="lang">
         <option value="zh">中文</option>
@@ -211,6 +211,19 @@
       <span class="slider"></span>
     </label>
   </div>
+
+  <div class="row">
+    <div class="kv" id="kvInstitution">学术网站自动选校</div>
+    <label class="switch" title="即点即生效">
+      <input id="institutionAutoSelect" type="checkbox" aria-labelledby="kvInstitution" />
+      <span class="slider"></span>
+    </label>
+  </div>
+  <button id="btnInstitutionLogin" class="btn-full">哈工大机构登录</button>
+  <button id="btnFailures" class="btn-full">查看选校失败记录</button>
+  <pre id="failureList" hidden style="white-space:pre-wrap;overflow-wrap:anywhere;font-size:12px;"></pre>
+  <button id="btnClearFailures" class="btn-full" hidden>清空失败记录</button>
+  <p id="hint" class="hint" role="status" aria-live="polite"></p>
 
   <div class="row">
     <div class="row">

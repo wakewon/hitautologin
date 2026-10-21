@@ -2,7 +2,7 @@
 // @name         HIT 校园网站自动登录2.0
 // @namespace    https://github.com/TerrorAWM
 // @updateURL    https://greasyfork.org/zh-CN/scripts/507678-hit-%E6%A0%A1%E5%9B%AD%E7%BD%91%E7%AB%99%E8%87%AA%E5%8A%A8%E7%99%BB%E5%BD%952-0
-// @version      1.4.0
+// @version      1.4.1
 // @description  严格识别 HIT 统一认证与 WLAN；支持学术网站自动选择哈工大、校外授权与 WebVPN 快捷入口
 // @author       Ricardo Zheng
 // @match        http://*/*
@@ -539,8 +539,11 @@
         if (location.hostname === 'www.scival.com') return 'https://www.scival.com/idp/start';
         return 'https://www.sciencedirect.com/user/institution/login?targetURL=' + encodeURIComponent(location.pathname + location.search);
       },
-      page: () => location.hostname === 'id.elsevier.com' && !!q('#wayfEmailForm'),
-      search: '#wayfEmailForm #bdd-email', results: '#bdd-institution-resultList button', submit: '#bdd-els-searchBtn' },
+      page: () => ['id.elsevier.com', 'auth.elsevier.com'].includes(location.hostname) &&
+        (!!q('#wayfEmailForm, .els-institution-form, #bdd-institution-resultList') ||
+          location.pathname.startsWith('/as/') && !!rememberedInstitutionAction()),
+      search: '#wayfEmailForm #bdd-email',
+      results: '#bdd-institution-resultList button, .els-institution-form button[name="action"][value="selectedShibInst"]' },
     { id: 'cambridge', hosts: ['www.cambridge.org', 'shibboleth.cambridge.org', 'shibboleth-discovery.cambridge.org'],
       entry: () => 'https://shibboleth.cambridge.org/CJOShibb2/index?app=' + encodeURIComponent('https://www.cambridge.org/core/shibboleth?ref=' + encodeURIComponent(location.pathname)),
       page: () => location.hostname === 'shibboleth-discovery.cambridge.org' && location.pathname.startsWith('/discovery/WAYF/'),
@@ -549,7 +552,7 @@
       entry: () => location.hostname === 'ds.carsi.edu.cn' ? location.href : 'https://sage.cnpereading.com/login?redirect=/action/showLogin',
       page: () => location.hostname === 'ds.carsi.edu.cn' ? /^\/login\/index(?:_en)?\.html$/.test(location.pathname) : location.pathname === '/login',
       entryButtonText: /^通过 CARSI 登录$/, query: '哈尔滨工业大学',
-      search: '#idpForm #show', results: '#idpForm .typeahead [role="option"]', submit: '#idpSkipButton' },
+      search: '#idpForm #show', results: '#idpForm .typeahead [role="option"]', entity: '#idpForm #hid-inp', submit: '#idpSkipButton' },
     { id: 'ieee', hosts: ['ieeexplore.ieee.org'],
       entry: () => 'https://ieeexplore.ieee.org/servlet/wayf.jsp?entityId=' + encodeURIComponent(HIT_IDP) + '&url=' + encodeURIComponent(location.href),
       page: () => !!q('.inst-typeahead-input'), direct: true },
@@ -588,8 +591,37 @@
     if (/威海|深圳|weihai|shenzhen/i.test(label)) return false;
     const entity = el.getAttribute('data-shibboleth-id') || el.getAttribute('data-entityid') || el.getAttribute('href') || el.value;
     // 有明确实体 ID 时以实体为准，避免名称匹配却指向另一所学校。
-    if (entity && (el.hasAttribute('data-shibboleth-id') || /^https?:/i.test(entity) || /[?&](?:entityID|entityId|idp)=/.test(entity))) return hasHitEntity(entity);
+    if (entity && (el.hasAttribute('data-shibboleth-id') || el.hasAttribute('data-entityid') || /^https?:/i.test(entity) || /[?&](?:entityID|entityId|idp)=/.test(entity))) return hasHitEntity(entity);
     return isHitInstitutionName(label);
+  }
+
+  function rememberedInstitutionAction(allowBareName = true) {
+    const actions = [...document.querySelectorAll('button, a, [role="button"]')].filter(isVisible);
+    const loginText = /^(?:sign\s*in|log\s*in|continue|access|登录|繼續|继续|登入)(?:\s*(?:via|through|with|to|your institution|your organization|↗|→))*$/i;
+    for (const el of actions) {
+      // 只接受操作本身明确指向本校的登录卡片，不按全页出现的学校名点击任意 Continue。
+      const text = (el.textContent || el.getAttribute('aria-label') || '').trim();
+      if (/remove|forget|delete|change|manage|清除|忘记|移除|更改/i.test(text)) continue;
+      const name = text.replace(/^(?:(?:sign\s*in|log\s*in|access)\s+(?:via|through|with|to|at)|continue\s+(?:with|to)|通过|使用)\s*/i, '')
+        .replace(/\s*(?:登录|登入|↗|→)$/, '');
+      const hasEntity = ['data-shibboleth-id', 'data-entityid'].some(attr => el.hasAttribute(attr)) ||
+        /[?&](?:entityID|entityId|idp)=/.test(el.getAttribute('href') || '');
+      if ((!allowBareName || el.tagName === 'A') && !hasEntity && name === text) continue;
+      if (hasEntity ? isHitInstitution(el) && (isHitInstitutionName(name) || loginText.test(text)) : isHitInstitutionName(name)) return el;
+    }
+    // 有些站点以隐藏实体 ID + 校名 + 独立 Continue 表单呈现记住的机构。
+    for (const form of document.querySelectorAll('form')) {
+      if (!isVisible(form) || form.querySelector('input:not([type="hidden"]):not([type="submit"]):not([type="button"]), select, textarea')) continue;
+      const entities = [...form.querySelectorAll('input[type="hidden"]')]
+        .filter(el => /^(?:entityID|idp|shibbolethId)$/i.test(el.name));
+      if (!entities.length || !entities.every(el => hasHitEntity(el.value))) continue;
+      const label = [...form.querySelectorAll('p, span, strong, label, h1, h2, h3, h4')]
+        .some(el => isVisible(el) && isHitInstitutionName(el.textContent));
+      const submit = [...form.querySelectorAll('button, input[type="submit"]')]
+        .find(el => isVisible(el) && loginText.test((el.textContent || el.value).trim()));
+      if (label && submit) return submit;
+    }
+    return null;
   }
 
   let institutionState = null;
@@ -611,7 +643,7 @@
 
   function newInstitutionState(requested = false) {
     const pending = GM_getValue(INSTITUTION_PENDING_KEY, null);
-    return { href: location.href, started: 0, steps: 0, selected: false, stopped: false, actions: new WeakMap(),
+    return { href: location.href, started: 0, steps: 0, selected: false, selectionAttempted: false, stopped: false, actions: new WeakMap(), submitted: new Set(),
       requested: requested || (pending?.expires > Date.now() && pending.adapter === institutionAdapter()?.id) };
   }
 
@@ -621,20 +653,52 @@
       (pending?.expires > Date.now() && pending.adapter === institutionAdapter()?.id);
   }
 
-  function actOnInstitution(el, action, fn) {
+  function actOnInstitution(el, action, fn, retry = false) {
     if (!isVisible(el) || el.disabled || el.getAttribute('aria-disabled') === 'true') return false;
     let actions = institutionState.actions.get(el);
-    if (!actions) { actions = new Set(); institutionState.actions.set(el, actions); }
-    if (actions.has(action)) return false;
+    if (!actions) { actions = new Map(); institutionState.actions.set(el, actions); }
+    const previous = actions.get(action);
+    // 框架可能晚于内容脚本绑定事件；仅对尚未生效的搜索/选择有限重试。
+    if (previous && (!retry || previous.count >= 3 || Date.now() - previous.time < 3000)) return false;
     if (++institutionState.steps > 12) {
       institutionState.stopped = true;
       recordInstitutionFailure('操作次数达到上限，请手动完成机构登录');
       institutionStatus('已暂停，请手动完成或点击重试');
       return false;
     }
-    actions.add(action);
+    actions.set(action, { count: (previous?.count || 0) + 1, time: Date.now() });
     fn();
     return true;
+  }
+
+  function institutionSubmit(adapter) {
+    return adapter.submit ? [...document.querySelectorAll(adapter.submit)].find(isVisible) :
+      [...document.querySelectorAll('button')].find(el => adapter.submitText?.test(el.textContent.trim()) && isVisible(el));
+  }
+
+  function submitInstitution(el) {
+    if (!el) return false;
+    const form = el.form || el.closest('form');
+    // 同一机构步骤即使重新渲染按钮，也只能提交一次；新的表单 action 才是下一步。
+    const key = [el.id, el.getAttribute('name'), el.getAttribute('value'), form?.getAttribute('action'), el.getAttribute('href')].join('|');
+    if (institutionState.submitted.has(key)) return false;
+    return actOnInstitution(el, 'submit', () => {
+      institutionState.submitted.add(key);
+      institutionStatus('正在前往哈工大认证…');
+      el.click();
+    });
+  }
+
+  function confirmedInstitution(adapter, search, select, results) {
+    if (isVisible(select)) return !select.disabled && !!select.selectedOptions[0] &&
+      !select.selectedOptions[0].disabled && isHitInstitution(select.selectedOptions[0]);
+    if (search?.disabled) return false;
+    const entity = adapter.entity && q(adapter.entity);
+    // CARSI 以隐藏实体为准，仅输入学校全称不能代表已选校。
+    if (entity) return hasHitEntity(entity.value) && isHitInstitutionName(search?.value);
+    // Springer/Cambridge 已记住或真正选中后，输入框为完整校名且下拉已收起。
+    return ['springer', 'cambridge'].includes(adapter.id) && isVisible(search) &&
+      isHitInstitutionName(search.value) && search.getAttribute('aria-expanded') === 'false' && !results.length;
   }
 
   function navigateInstitution(url) {
@@ -679,11 +743,12 @@
       return;
     }
 
-    const search = adapter.search && q(adapter.search);
-    const federation = adapter.federation && q(adapter.federation);
-    const select = adapter.select && q(adapter.select);
+    const search = adapter.search && [...document.querySelectorAll(adapter.search)].find(isVisible);
+    const federation = adapter.federation && [...document.querySelectorAll(adapter.federation)].find(isVisible);
+    const select = adapter.select && [...document.querySelectorAll(adapter.select)].find(isVisible);
     const results = adapter.results ? [...document.querySelectorAll(adapter.results)].filter(isVisible) : [];
-    if (![search, federation, select].some(isVisible) && !results.length) {
+    const remembered = rememberedInstitutionAction();
+    if (![search, federation, select].some(isVisible) && !results.length && !remembered) {
       if (institutionState.requested) {
         if (!institutionState.started) institutionState.started = Date.now();
         if (Date.now() - institutionState.started > 30000) {
@@ -696,7 +761,9 @@
     }
     const otherQuery = search?.value && !/^harbin$/i.test(search.value.trim()) && !isHitInstitutionName(search.value);
     const otherFederation = federation?.selectedIndex > 0 && !/CARSI/i.test(federation.selectedOptions[0]?.textContent || '');
-    if (!institutionState.requested && (otherQuery || otherFederation)) {
+    const otherSelection = select?.selectedIndex > 0 && !isHitInstitution(select.selectedOptions[0]);
+    if (((institutionState.selected || institutionState.selectionAttempted) && (otherQuery || otherFederation || otherSelection)) ||
+        (!institutionState.requested && (otherQuery || otherFederation || otherSelection))) {
       institutionState.stopped = true;
       institutionStatus('保留你已选择的机构；点击按钮可改为哈工大');
       return;
@@ -710,40 +777,49 @@
       return;
     }
 
-    const hit = !institutionState.selected && results.find(isHitInstitution);
-    if (hit && actOnInstitution(hit, 'select', () => hit.click())) {
-      institutionState.selected = true;
-      institutionStatus('已选择哈尔滨工业大学，正在继续…');
+    // 每轮重新读取当前表单，不能把“点击过结果”当作选择成功。
+    institutionState.selected = confirmedInstitution(adapter, search, select, results);
+    if (institutionState.selected) {
+      submitInstitution(institutionSubmit(adapter));
       return;
     }
-    if (!institutionState.selected && isVisible(select) && !select.disabled) {
+    const hit = results.find(isHitInstitution) || remembered;
+    if (hit) {
+      // Elsevier 的学校按钮本身提交表单；不要再点击用于搜索的“提交并继续”。
+      const navigates = hit.tagName === 'A' && hit.getAttribute('href') && hit.getAttribute('href') !== '#' ||
+        hit.matches('button[type="submit"], .els-institution-form button');
+      if (navigates || hit === remembered && !results.includes(hit)) submitInstitution(hit);
+      else actOnInstitution(hit, 'select', () => hit.click(), true);
+      institutionState.selectionAttempted = true;
+      institutionStatus('正在选择哈尔滨工业大学…');
+      return;
+    }
+    if (isVisible(select) && !select.disabled) {
       const option = [...select.options].find(option => !option.disabled && isHitInstitution(option));
       if (option && actOnInstitution(select, 'select', () => {
         select.value = option.value;
         select.dispatchEvent(new Event('change', { bubbles: true }));
-      })) { institutionState.selected = true; return; }
+      }, true)) return;
     }
-    // 不覆盖手动输入；搜索只触发一次，等待异步结果。
-    if (!institutionState.selected && isVisible(search) && (!search.value || otherQuery) && !search.readOnly) {
-      if (actOnInstitution(search, 'search', () => setInputValue(search, adapter.query || 'Harbin'))) {
+    // 初次加载可能早于站点事件绑定；无结果时最多重新触发三次，给异步请求留出时间。
+    if (isVisible(search) && !search.readOnly && (!search.value || !otherQuery || institutionState.requested)) {
+      if (actOnInstitution(search, 'search', () => {
+        setInputValue(search, adapter.query || 'Harbin');
+        search.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true, key: 'n', code: 'KeyN' }));
+      }, true)) {
         institutionStatus('正在查找哈尔滨工业大学…');
         return;
       }
     }
     // 无搜索控件或搜索无结果时，才尝试 CARSI 联盟下拉框。
-    if (!institutionState.selected && isVisible(federation) && !federation.disabled && (!isVisible(search) || Date.now() - institutionState.started > 6000)) {
+    if (isVisible(federation) && !federation.disabled && (!isVisible(search) || Date.now() - institutionState.started > 6000)) {
       const option = [...federation.options].find(option => /\bCARSI\b/i.test(option.textContent));
-      if (option && (!federation.value || !federation.selectedOptions[0]?.textContent.match(/CARSI/i))) {
-        if (actOnInstitution(federation, 'federation', () => {
+      if (option && !/CARSI/i.test(federation.selectedOptions[0]?.textContent || '')) {
+        actOnInstitution(federation, 'federation', () => {
           federation.value = option.value;
           federation.dispatchEvent(new Event('change', { bubbles: true }));
-        })) return;
+        }, true);
       }
-    }
-    // 只有确实选中过本校结果才能点击提交，绝不对个人账号表单按 Enter。
-    if (institutionState.selected) {
-      const submit = adapter.submit ? q(adapter.submit) : [...document.querySelectorAll('button')].find(el => adapter.submitText?.test(el.textContent.trim()));
-      if (submit) actOnInstitution(submit, 'submit', () => submit.click());
     }
   }
 
@@ -757,6 +833,9 @@
     if (!adapter) return false;
     institutionState = newInstitutionState(true);
     GM_setValue(INSTITUTION_PENDING_KEY, { adapter: adapter.id, expires: Date.now() + 180000 });
+    // 文章页已记住本校时，使用站点现成入口以保留资源回跳；仅显式点击时执行。
+    const remembered = rememberedInstitutionAction(adapter.page());
+    if (remembered) return submitInstitution(remembered);
     // 已在机构页就直接选校；在文章或首页则进入站点的机构登录流程。
     if (adapter.page()) { runInstitutionStep(); return true; }
     return navigateInstitution(adapter.entry());
@@ -766,7 +845,7 @@
     if (!institutionAdapter() || institutionObserver) return;
     institutionState = newInstitutionState();
     // 人工修改学校输入/下拉框时立即让出控制权，按钮可重新启动。
-    document.addEventListener('input', event => {
+    const yieldInstitutionControl = event => {
       if (!event.isTrusted || !event.target.matches?.('input,select')) return;
       const adapter = institutionAdapter();
       const selectors = [adapter?.search, adapter?.select, adapter?.federation].filter(Boolean).join(',');
@@ -774,10 +853,12 @@
         institutionState.stopped = true;
         institutionStatus('已交由你手动选择；可点击按钮重新开始');
       }
-    }, true);
+    };
+    document.addEventListener('input', yieldInstitutionControl, true);
+    document.addEventListener('change', yieldInstitutionControl, true);
     institutionObserver = new MutationObserver(scheduleInstitutionStep);
     institutionObserver.observe(document.body, { childList: true, subtree: true, attributes: true,
-      attributeFilter: ['style', 'class', 'hidden', 'disabled', 'aria-expanded'] });
+      attributeFilter: ['style', 'class', 'hidden', 'disabled', 'aria-expanded', 'aria-selected', 'aria-disabled', 'value'] });
     window.addEventListener('popstate', scheduleInstitutionStep);
     // 低频计时同时处理框架延迟挂载、SPA 路由和超时；每次操作仍按元素去重。
     setInterval(scheduleInstitutionStep, 1000);

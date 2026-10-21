@@ -1,52 +1,30 @@
-// background.js (Firefox MV2 persistent script) — i18n + 菜单动态更新
-// Firefox 支持 chrome.* API，但也支持 browser.* API
-// 为了兼容性，这里保持使用 chrome.* API（Firefox 会自动适配）
-
-// 简单存储读
-const get = (k, d) => new Promise(res => chrome.storage.local.get([k], o => res(o[k] !== undefined ? o[k] : d)));
-const set = (k, v) => new Promise(res => chrome.storage.local.set({ [k]: v }, res));
-
-// 语言包
-function t(lang, key) {
-  const L = {
-    zh: { menu_manual: "HIT: 手动接管登录" },
-    en: { menu_manual: "HIT: Trigger Login Manually" }
-  };
-  return (L[lang] || L.zh)[key] || key;
-}
-
-async function createOrUpdateMenu() {
-  const lang = await get('lang', 'zh');
-  const title = t(lang, 'menu_manual');
-  try {
-    await chrome.contextMenus.update("hit_trigger_login", { title });
-  } catch {
-    chrome.contextMenus.create({
-      id: "hit_trigger_login",
-      title,
-      contexts: ["all"]
+// Native Firefox background APIs; no page credentials are read by menu handling.
+let menuUpdate = Promise.resolve();
+function updateMenus() {
+  menuUpdate = menuUpdate.then(async () => {
+    const { lang = 'zh' } = await browser.storage.local.get('lang');
+    await browser.contextMenus.removeAll();
+    browser.contextMenus.create({
+      id: 'hit_institution_login', contexts: ['all'],
+      title: lang === 'en' ? 'HIT: Institutional sign-in' : 'HIT：哈工大机构登录'
     });
-  }
+    browser.contextMenus.create({
+      id: 'hit_trigger_login', contexts: ['all'],
+      title: lang === 'en' ? 'HIT: Trigger login manually' : 'HIT：手动接管统一认证'
+    });
+  }).catch(error => console.error('[HIT Auto Login] Menu update failed', error));
+  return menuUpdate;
 }
-
-// 安装/更新时创建右键菜单
-chrome.runtime.onInstalled.addListener(createOrUpdateMenu);
-
-// 监听语言变化，实时更新菜单
-chrome.storage.onChanged.addListener((changes, area) => {
-  if (area === 'local' && 'lang' in changes) {
-    createOrUpdateMenu();
-  }
+browser.runtime.onInstalled.addListener(updateMenus);
+browser.runtime.onStartup.addListener(updateMenus);
+browser.storage.onChanged.addListener((changes, area) => {
+  if (area === 'local' && 'lang' in changes) updateMenus();
 });
-
-chrome.contextMenus.onClicked.addListener(async (info, tab) => {
-  if (info.menuItemId === "hit_trigger_login" && tab && tab.id) {
-    try {
-      await chrome.tabs.sendMessage(tab.id, { type: "HIT_TRIGGER_LOGIN" });
-    } catch (e) {
-      // Firefox 的 content script 在 MV2 中应该已经自动注入了
-      // 如果失败，可能是页面还没加载完成，忽略即可
-      console.warn("无法触发手动接管登录: ", e);
-    }
-  }
+browser.contextMenus.onClicked.addListener(async (info, tab) => {
+  if (!Number.isInteger(tab?.id)) return;
+  const type = info.menuItemId === 'hit_institution_login' ? 'HIT_INSTITUTION_LOGIN'
+    : info.menuItemId === 'hit_trigger_login' ? 'HIT_TRIGGER_LOGIN' : null;
+  if (!type) return;
+  try { await browser.tabs.sendMessage(tab.id, { type }); }
+  catch (error) { console.info('[HIT Auto Login] Reload the page before using sign-in', error); }
 });
