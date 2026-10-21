@@ -60,6 +60,7 @@ async function setup(t, url, html = '', options = {}) {
   w.setInterval = (fn, ms) => { timers.set(++seq, { fn, at: time + ms, interval: ms }); return seq; };
   w.clearTimeout = w.clearInterval = id => timers.delete(id);
   Object.defineProperty(w.document, 'readyState', { get: () => 'complete' });
+  for (const [key, value] of Object.entries(options.session || {})) w.sessionStorage.setItem(key, value);
   if (options.before) options.before(w);
   w.eval(`((location) => {\n${source}\n})(window.__testLocation)`);
   t.after(() => { timers.clear(); dom.window.close(); });
@@ -824,4 +825,81 @@ test('a disabled remembered institution widget waits until the site enables it',
   env.doc.querySelector('select').disabled = false;
   await env.tick(1500);
   assert.equal(submits, 1);
+});
+
+
+// Public DOM structure observed after normal ScienceDirect logout. No account IDs,
+// OAuth state, CSRF values, session form actions or personal details are retained.
+const rememberedElsevier = (school, hideCard = false) => `<main id="maincontent">
+  <h1>通过您的组织访问</h1>
+  <form name="elsForm" method="post" action="/as/fixture/resume/as/authorization.ping">
+    <button type="submit" id="bdd-elsPrimaryBtn" name="action" value="signInWithInst" ${hideCard ? 'hidden' : ''}>
+      <div class="els-institution-group"><p id="bdd-institution-name">${school}</p></div>
+    </button>
+    <div id="SAenabledViewSecD">
+      <input type="checkbox" id="bdd-rememberSA" name="rememberSA" checked>
+      <label for="bdd-rememberSA">利用 SeamlessAccess记住组织</label>
+      <button type="submit" id="bdd-elsPrimaryBtn2" name="action" value="signInWithInst">
+        <img alt="Access through your institution button"><div>通过${school}访问</div>
+      </button>
+      <button type="submit" id="bdd-elsSecondaryBtn" name="action" value="tryAnotherWayUrl">取消</button>
+    </div>
+    <div hidden><button type="submit" id="bdd-elsPrimaryBtn3" name="action" value="signInWithInst">通过您的组织访问</button></div>
+  </form></main>`;
+
+for (const hideCard of [false, true]) test(`real Elsevier remembered page prefers the verified access button; hidden card: ${hideCard}`, async t => {
+  const clicks = [];
+  const env = await setup(t, 'https://id.elsevier.com/as/authorization.oauth2?state=fixture', rememberedElsevier('哈尔滨工业大学(Harbin Institute of Technology) (Harbin Institute of Technology)', hideCard), {
+    before(w) { w.document.querySelectorAll('button').forEach(el => { el.onclick = e => { e.preventDefault(); clicks.push(el.id); }; }); }
+  });
+  await env.tick(5000);
+  assert.deepEqual(clicks, ['bdd-elsPrimaryBtn2']);
+  assert.equal(env.doc.querySelector('#bdd-rememberSA').checked, true);
+  assert.equal(env.reads.includes('password'), false);
+});
+
+for (const school of ['Harbin Engineering University', 'Harbin Institute of Technology Weihai']) {
+  test(`real Elsevier remembered page does not continue another institution: ${school}`, async t => {
+    let clicks = 0;
+    const env = await setup(t, 'https://id.elsevier.com/as/authorization.oauth2', rememberedElsevier(school), {
+      before(w) { w.document.querySelectorAll('button').forEach(el => { el.onclick = e => { e.preventDefault(); clicks++; }; }); }
+    });
+    await env.tick(4000);
+    assert.equal(clicks, 0);
+  });
+}
+
+test('full-page OAuth returns cannot reset the automatic submission limit; explicit retry can restart', async t => {
+  const values = new Map([['fabEnabled', false]]);
+  let session = {}, clicks = 0, last;
+  // Each document has a different OAuth state and form action, as happens in real redirects.
+  for (let i = 0; i < 4; i++) {
+    last = await setup(t, `https://id.elsevier.com/as/authorization.oauth2?state=fixture-${i}`, rememberedElsevier('Harbin Institute of Technology').replace('/as/fixture/', `/as/fixture-${i}/`), {
+      values, session,
+      before(w) { w.document.querySelectorAll('button').forEach(el => { el.onclick = e => { e.preventDefault(); clicks++; }; }); }
+    });
+    await last.tick(1500);
+    session = Object.fromEntries(Object.keys(last.w.sessionStorage).map(key => [key, last.w.sessionStorage.getItem(key)]));
+  }
+  assert.equal(clicks, 2);
+  assert.match(values.get('institutionFailures')[0].reason, /反复.*停止自动提交/);
+  await last.w.HITLoginAuto2.institutionLogin();
+  await last.tick(1000);
+  assert.equal(clicks, 3);
+});
+
+test('loop protection allows the normal result-selection then remembered-institution steps', async t => {
+  let clicks = 0;
+  const first = await setup(t, 'https://id.elsevier.com/as/authorization.oauth2', '<form id="wayfEmailForm"><input id="bdd-email"><div id="bdd-institution-resultList"><button type="submit">Harbin Institute of Technology</button></div></form>', {
+    before(w) { w.document.querySelector('button').onclick = e => { e.preventDefault(); clicks++; }; }
+  });
+  await first.tick(1000);
+  const session = Object.fromEntries(Object.keys(first.w.sessionStorage).map(key => [key, first.w.sessionStorage.getItem(key)]));
+  const second = await setup(t, 'https://id.elsevier.com/as/resume/as/authorization.ping', rememberedElsevier('Harbin Institute of Technology'), {
+    session,
+    before(w) { w.document.querySelectorAll('button').forEach(el => { el.onclick = e => { e.preventDefault(); clicks++; }; }); }
+  });
+  await second.tick(1000);
+  assert.equal(clicks, 2);
+  assert.equal(second.values.get('institutionFailures'), undefined);
 });

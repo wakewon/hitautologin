@@ -6,7 +6,7 @@
 
 ## 使用方式
 
-更新 `Tampermonkey/app.js`，或按 [开发版安装说明](./firefox-dev-install.md) 加载 Firefox v1.4.1 后，在已登记的学术网站右下角直接点击 **哈工大登录**。在实际机构选择页，脚本也会按默认开启的设置自动选校。首页、文章页不会自行跳走。
+更新 `Tampermonkey/app.js`，或按 [开发版安装说明](./firefox-dev-install.md) 加载 Firefox v1.4.2 后，在已登记的学术网站右下角直接点击 **哈工大登录**。在实际机构选择页，脚本也会按默认开启的设置自动选校。首页、文章页不会自行跳走。
 
 - 统一认证账号密码仅用于 HTTPS 的 `ids.hit.edu.cn/authserver/login` 已确认表单；WLAN 另有独立的域名、路径和面板识别。
 - 支持简体中文、英文全称、ACS 的 `HARBIN INST OF TECHNOLOGY` 及中英混排，核对页面提供的本校实体 ID；不选哈尔滨工程大学、其他校区或缩写 HIT。
@@ -33,7 +33,7 @@ Firefox 使用相同站点规则，并额外通过扩展存储、消息和弹出
 
 ## 2026-10-22 稳定性与记住机构
 
-油猴 v1.4.1 与 Firefox v1.4.1 使用相同规则：
+油猴 v1.4.2 与 Firefox v1.4.2 使用相同规则：
 
 - 搜索控件出现早于站点事件绑定时，每隔至少 3 秒重新触发输入，最多 3 次；未生效的普通结果选择同样有限重试。超时与总操作次数仍有上限。
 - 每次操作重新读取当前表单。Springer/Cambridge 需完整本校名且下拉已收起；CARSI 需本校隐藏实体 ID 与完整校名；Silverchair 核对当前选中项。单纯点击过结果不能开启提交。
@@ -42,7 +42,19 @@ Firefox 使用相同站点规则，并额外通过扩展存储、消息和弹出
 - 文章页保持原位；显式点击“哈工大登录”时，优先使用已有“Access through Harbin Institute of Technology”等本校入口并保留站点回跳。普通作者单位链接不当作登录入口。
 - 同一步骤按按钮及表单 action 去重，重建按钮不会再次提交。手动输入或更改下拉框时让出控制权。
 
-本轮在浏览器再次确认 ScienceDirect 搜索结果与 Springer/Cambridge 的选中状态，并到达统一认证。Elsevier 的[官方 SeamlessAccess 说明](https://www.elsevier.support/sciencedirect/answer/what-is-seamlessaccess)确认记住机构时文章页会显示“Access through [机构名]”入口。**本轮未使用真实账号完成学校登录，因此登录后记忆卡片的具体 DOM 仅有防御性规则和回归夹具覆盖，尚未宣称真实账号复测通过。**
+本轮在浏览器再次确认 ScienceDirect 搜索结果与 Springer/Cambridge 的选中状态，并到达统一认证。Elsevier 的[官方 SeamlessAccess 说明](https://www.elsevier.support/sciencedirect/answer/what-is-seamlessaccess)确认记住机构时文章页会显示“Access through [机构名]”入口。
+
+### 真实 ScienceDirect 记忆页复核（v1.4.2）
+
+用户随后在内置浏览器完成学校登录，首页出现本校机构访问标识。测试时通过个人菜单中的正常 Sign out 链接退出；Elsevier 有时停在 `/ext/ae-logout` 中转页，需点击“注销”才完成退出。**未清除站点数据或机构记忆。** 再次点击 Sign in，实际显示“通过您的组织访问”页：
+
+- `form[name="elsForm"]` 中，`#bdd-elsPrimaryBtn` 是完整本校名的可提交卡片。
+- `#bdd-elsPrimaryBtn2[name="action"][value="signInWithInst"]` 是“通过本校名访问”的专用按钮；脚本优先使用它，且在主卡片隐藏时仍可识别。
+- `#bdd-rememberSA` 原已选中；脚本不修改此设置，不点击取消、注销或其他学校。
+- 实际点击学校卡片返回 ScienceDirect，个人账户已显示，但返回页未见机构权限标识，因此不将此次返回当作订阅权限恢复证明。浏览器未加载本项目油猴或 Firefox 扩展；真实站点流程验证与两端脱敏 DOM 回归测试是不同证据。
+
+多标签页测试退出期间，旧认证页曾落到 `ILP-VERIFY-1` 会话错误页；已关闭旧测试页并暂停浏览器登录操作。未据此归因于扩展或油猴脚本。代码另外补充了跨页面保护：同一平台、同一步骤在 5 分钟内自动提交最多两次，不使用变化的 OAuth state 或表单 action 作为限次标识；达到上限暂停并记录，用户显式点击按钮才重置。正常的搜索结果提交与记忆机构继续步骤分别计数。
+
 
 ## 拦截与未完成项
 

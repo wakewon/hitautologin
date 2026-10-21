@@ -1,7 +1,7 @@
 {
   "manifest_version": 2,
   "name": "HIT 校园网站自动登录 2.0",
-  "version": "1.4.1",
+  "version": "1.4.2",
   "author": "Ricardo Zheng",
   "description": "严格识别 HIT 统一认证与 WLAN；支持学术网站一键机构登录、自动选校与校外授权",
   "browser_specific_settings": {

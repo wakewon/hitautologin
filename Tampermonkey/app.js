@@ -2,7 +2,7 @@
 // @name         HIT 校园网站自动登录2.0
 // @namespace    https://github.com/TerrorAWM
 // @updateURL    https://greasyfork.org/zh-CN/scripts/507678-hit-%E6%A0%A1%E5%9B%AD%E7%BD%91%E7%AB%99%E8%87%AA%E5%8A%A8%E7%99%BB%E5%BD%952-0
-// @version      1.4.1
+// @version      1.4.2
 // @description  严格识别 HIT 统一认证与 WLAN；支持学术网站自动选择哈工大、校外授权与 WebVPN 快捷入口
 // @author       Ricardo Zheng
 // @match        http://*/*
@@ -597,13 +597,17 @@
 
   function rememberedInstitutionAction(allowBareName = true) {
     const actions = [...document.querySelectorAll('button, a, [role="button"]')].filter(isVisible);
+    // Elsevier 实际记忆页：优先使用带完整校名的 SeamlessAccess 登录按钮。
+    const access = actions.find(el => ['id.elsevier.com', 'auth.elsevier.com'].includes(location.hostname) &&
+      el.id === 'bdd-elsPrimaryBtn2' && el.name === 'action' && el.value === 'signInWithInst' && el.form?.name === 'elsForm');
+    if (access) actions.unshift(access);
     const loginText = /^(?:sign\s*in|log\s*in|continue|access|登录|繼續|继续|登入)(?:\s*(?:via|through|with|to|your institution|your organization|↗|→))*$/i;
     for (const el of actions) {
       // 只接受操作本身明确指向本校的登录卡片，不按全页出现的学校名点击任意 Continue。
       const text = (el.textContent || el.getAttribute('aria-label') || '').trim();
       if (/remove|forget|delete|change|manage|清除|忘记|移除|更改/i.test(text)) continue;
       const name = text.replace(/^(?:(?:sign\s*in|log\s*in|access)\s+(?:via|through|with|to|at)|continue\s+(?:with|to)|通过|使用)\s*/i, '')
-        .replace(/\s*(?:登录|登入|↗|→)$/, '');
+        .replace(/\s*(?:登录|登入|访问|↗|→)$/, '');
       const hasEntity = ['data-shibboleth-id', 'data-entityid'].some(attr => el.hasAttribute(attr)) ||
         /[?&](?:entityID|entityId|idp)=/.test(el.getAttribute('href') || '');
       if ((!allowBareName || el.tagName === 'A') && !hasEntity && name === text) continue;
@@ -676,12 +680,33 @@
       [...document.querySelectorAll('button')].find(el => adapter.submitText?.test(el.textContent.trim()) && isVisible(el));
   }
 
+  function institutionSubmitGuard(stage, reset = false) {
+    // 内存去重在整页重载后会丢失；按平台/步骤计数，不受变化的 OAuth state/表单 action 影响。
+    try {
+      const key = 'hit-institution-submit:' + institutionAdapter().id + ':' + stage;
+      if (reset) { sessionStorage.removeItem(key); return true; }
+      const previous = JSON.parse(sessionStorage.getItem(key) || 'null');
+      const count = previous && Date.now() - previous.time < 300000 ? previous.count : 0;
+      if (count >= 2) {
+        institutionState.stopped = true;
+        recordInstitutionFailure('机构登录反复返回，已停止自动提交');
+        institutionStatus('认证反复返回，已暂停；请检查后点击按钮重试');
+        return false;
+      }
+      sessionStorage.setItem(key, JSON.stringify({ count: count + 1, time: Date.now() }));
+    } catch (_) { /* 存储不可用时仍有本页去重与操作次数上限 */ }
+    return true;
+  }
+
   function submitInstitution(el) {
     if (!el) return false;
     const form = el.form || el.closest('form');
     // 同一机构步骤即使重新渲染按钮，也只能提交一次；新的表单 action 才是下一步。
     const key = [el.id, el.getAttribute('name'), el.getAttribute('value'), form?.getAttribute('action'), el.getAttribute('href')].join('|');
-    if (institutionState.submitted.has(key)) return false;
+    if (institutionState.submitted.has(key) || !isVisible(el) || el.disabled || el.getAttribute('aria-disabled') === 'true') return false;
+    const adapter = institutionAdapter();
+    const stage = adapter.results && el.matches(adapter.results) ? 'select' : 'continue';
+    if (!institutionSubmitGuard(stage)) return false;
     return actOnInstitution(el, 'submit', () => {
       institutionState.submitted.add(key);
       institutionStatus('正在前往哈工大认证…');
@@ -832,6 +857,9 @@
     const adapter = institutionAdapter();
     if (!adapter) return false;
     institutionState = newInstitutionState(true);
+    // 显式按钮表示用户已检查并重试；自动返回机构页不会清除此限制。
+    institutionSubmitGuard('select', true);
+    institutionSubmitGuard('continue', true);
     GM_setValue(INSTITUTION_PENDING_KEY, { adapter: adapter.id, expires: Date.now() + 180000 });
     // 文章页已记住本校时，使用站点现成入口以保留资源回跳；仅显式点击时执行。
     const remembered = rememberedInstitutionAction(adapter.page());
