@@ -4,7 +4,8 @@
   "scripts": {
     "test": "node scripts/test-all.cjs",
     "check": "node --check Tampermonkey/app.js && node --check \"Firefox Extension/content.js\" && node --check \"Firefox Extension/popup.js\" && node --check \"Firefox Extension/background.js\" && node --check \"Firefox Extension/help.js\"",
-    "build:firefox-dev": "node scripts/build-firefox-dev.cjs"
+    "build:firefox-dev": "node scripts/build-firefox-dev.cjs",
+    "build:firefox-unlisted": "node scripts/build-firefox-unlisted.cjs"
   },
   "devDependencies": {
     "jsdom": "^30.1.3"

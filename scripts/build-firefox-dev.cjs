@@ -10,7 +10,7 @@ manifest.browser_specific_settings.gecko.id = 'hit-autologin-dev@local.invalid';
 manifest.browser_action.default_title = manifest.name;
 fs.rmSync(output, { recursive: true, force: true });
 fs.mkdirSync(output, { recursive: true });
-for (const name of ['content.js', 'background.js', 'popup.html', 'popup.js', 'help.html', 'help.js', 'icons']) {
+for (const name of ['content.js', 'background.js', 'popup.html', 'popup.js', 'help.html', 'help.js', 'privacy.html', 'icons']) {
   fs.cpSync(path.join(source, name), path.join(output, name), { recursive: true });
 }
 fs.copyFileSync(path.join(root, 'LICENSE'), path.join(output, 'LICENSE'));

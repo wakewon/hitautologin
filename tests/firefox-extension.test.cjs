@@ -115,8 +115,52 @@ test('development build has an independent identity and all referenced scripts, 
   assert.notEqual(manifest.browser_specific_settings.gecko.id, JSON.parse(before).browser_specific_settings.gecko.id);
   assert.equal(manifest.browser_specific_settings.gecko.id, 'hit-autologin-dev@local.invalid');
   assert.equal(fs.readFileSync(path.join(extension, 'manifest.json'), 'utf8'), before);
-  for (const file of [...manifest.background.scripts, ...manifest.content_scripts.flatMap(entry => entry.js), 'help.js', 'popup.js', 'LICENSE']) {
+  for (const file of [...manifest.background.scripts, ...manifest.content_scripts.flatMap(entry => entry.js), 'help.js', 'popup.js', 'privacy.html', 'LICENSE']) {
     assert.ok(fs.existsSync(path.join(output, file)), `missing packaged file ${file}`);
   }
   assert.deepEqual(manifest.permissions, JSON.parse(before).permissions);
+});
+
+test('unlisted upload has an independent fixed ID, clean archive roots, and reproducible reviewer sources', t => {
+  const before = fs.readFileSync(path.join(extension, 'manifest.json'), 'utf8');
+  const artifacts = path.join(root, 'dist', 'firefox-upload');
+  fs.mkdirSync(artifacts, { recursive: true });
+  const preserved = path.join(artifacts, 'test-signed-download.xpi');
+  fs.writeFileSync(preserved, 'fixture: user downloaded signed file');
+  t.after(() => fs.rmSync(preserved, { force: true }));
+  const built = spawnSync(process.execPath, ['scripts/build-firefox-unlisted.cjs'], { cwd: root, encoding: 'utf8' });
+  assert.equal(built.status, 0, built.stderr);
+  assert.equal(fs.readFileSync(preserved, 'utf8'), 'fixture: user downloaded signed file');
+  const output = path.join(root, 'dist', 'firefox-unlisted');
+  const manifest = JSON.parse(fs.readFileSync(path.join(output, 'manifest.json'), 'utf8'));
+  const config = JSON.parse(fs.readFileSync(path.join(root, 'config', 'firefox-unlisted.json'), 'utf8'));
+  assert.equal(manifest.browser_specific_settings.gecko.id, config.id);
+  assert.notEqual(config.id, JSON.parse(before).browser_specific_settings.gecko.id);
+  assert.notEqual(config.id, 'hit-autologin-dev@local.invalid');
+  assert.deepEqual(manifest.browser_specific_settings.gecko.data_collection_permissions.required, ['authenticationInfo', 'browsingActivity']);
+  assert.equal(manifest.browser_specific_settings.gecko_android.strict_min_version, '142.0');
+  assert.equal(fs.readFileSync(path.join(extension, 'manifest.json'), 'utf8'), before);
+  const prefix = `hit-autologin-personal-${manifest.version}`;
+  const upload = path.join(artifacts, `${prefix}-unsigned.zip`);
+  const sources = path.join(artifacts, `${prefix}-source.zip`);
+  const listing = spawnSync('unzip', ['-Z1', upload], { encoding: 'utf8' });
+  assert.equal(listing.status, 0, listing.stderr);
+  const entries = listing.stdout.trim().split('\n');
+  assert.ok(entries.includes('manifest.json'), 'manifest must be at the archive root');
+  assert.ok(entries.includes('LICENSE'));
+  assert.ok(entries.includes('privacy.html'));
+  assert.equal(entries.some(file => /(?:^|\/)(?:\.git|node_modules|\.env|scripts|config)(?:\/|$)/.test(file)), false);
+  const tmp = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'hit-amo-source-'));
+  t.after(() => fs.rmSync(tmp, { recursive: true, force: true }));
+  const extracted = spawnSync('unzip', ['-q', sources, '-d', tmp], { encoding: 'utf8' });
+  assert.equal(extracted.status, 0, extracted.stderr);
+  const rebuilt = spawnSync(process.execPath, ['scripts/build-firefox-unlisted.cjs'], { cwd: tmp, encoding: 'utf8' });
+  assert.equal(rebuilt.status, 0, rebuilt.stderr);
+  for (const file of entries.filter(entry => !entry.endsWith('/'))) {
+    assert.deepEqual(fs.readFileSync(path.join(tmp, 'dist', 'firefox-unlisted', file)), fs.readFileSync(path.join(output, file)), `source rebuild differs: ${file}`);
+  }
+  const hashes = fs.readFileSync(path.join(artifacts, 'SHA256SUMS.txt'), 'utf8');
+  for (const file of [upload, sources]) {
+    assert.ok(hashes.includes(require('node:crypto').createHash('sha256').update(fs.readFileSync(file)).digest('hex')));
+  }
 });

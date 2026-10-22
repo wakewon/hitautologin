@@ -46,7 +46,13 @@ npm run build:firefox-dev
 
 Firefox 正式版 / Beta 的常规安装需要 Mozilla 签名。你可以用自己的 Mozilla 开发者账号，使用一个属于你自己的唯一扩展 ID，将修改版提交为 **自分发 / unlisted** 扩展；它无需作为公开商店条目发布，也无需原作者账号。
 
-默认本地 ID 用于临时测试。若要自行签名，请先在 `scripts/build-firefox-dev.cjs` 中将开发包 ID 改为你自己的唯一值，再构建。保留项目 MIT 许可和原作者署名，按照 Mozilla 的[签名与分发说明](https://extensionworkshop.com/documentation/publish/signing-and-distribution-overview/)提交自己的构建，并安装返回的已签名 `.xpi`。不要用原作者的扩展 ID 向其商店条目提交更新。
+默认本地 ID 用于临时测试。用于你自己账号签名的个人包已有独立构建命令：
+
+```sh
+npm run build:firefox-unlisted
+```
+
+它使用 `config/firefox-unlisted.json` 中固定的独立 UUID，不改变商店版或临时开发版 ID，并保留 MIT 许可和原作者署名。按[自行分发上传步骤](./firefox-self-distribution.md)上传 `dist/firefox-upload/` 中的扩展 ZIP 与源码 ZIP，再安装 Mozilla 返回的已签名 `.xpi`。不要用原作者的扩展 ID 向其商店条目提交更新。
 
 ## 开发验证
 
@@ -60,4 +66,6 @@ npm run build:firefox-dev
 npx --yes web-ext@10.8.0 lint --source-dir dist/firefox-dev
 ```
 
-测试包含共同站点行为、Firefox 异步存储和消息、弹出页、右键菜单、开发版打包。站点订阅或登录后的下载权限仍需要用自己的账户确认；测试不使用真实账号密码。桌面最低版本保留原项目的 140，`web-ext` 可能提示 Android 的数据声明兼容性警告；本轮适配与安装步骤针对桌面 Firefox。
+测试包含共同站点行为、Firefox 异步存储和消息、弹出页、右键菜单、开发版及个人上传包打包和源码重建。站点订阅或登录后的下载权限仍需要用自己的账户确认；测试不使用真实账号密码。桌面最低版本为 140；Android 的数据声明最低版本单独标为 142，但本轮只验证桌面 Firefox，上传时只选择桌面平台。
+
+Firefox 数据声明包含认证信息和浏览活动：前者用于学校登录，后者用于机构登录及 WebVPN 的当前资源回跳。详细用途见扩展内的 `privacy.html`，没有向维护者回传的接口。

@@ -1,0 +1,19 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>HIT 自动登录 · 数据说明</title></head>
+<body>
+  <h1>HIT 自动登录 · 数据使用说明</h1>
+  <p>适用于本仓库的 Firefox 修改版。扩展没有开发者服务器、统计分析或广告追踪，也不加载远程可执行代码。</p>
+  <h2>账号与认证</h2>
+  <p>你输入的用户名、密码和设置保存在 Firefox 扩展本地存储中，不使用浏览器同步存储。该存储不是独立的加密密码保险库。</p>
+  <p>扩展只在经过 HTTPS、域名、路径和表单结构校验的哈工大统一认证及 WLAN 登录页面填充凭据。开启自动登录或手动触发后，学校网页自己的认证表单会将凭据提交给学校认证服务。扩展不将校园密码提交给学术出版商或开发者。</p>
+  <h2>机构选择与回跳地址</h2>
+  <p>选校流程会向当前出版商及其官方机构登录页面提供哈尔滨工业大学的机构名称或实体 ID。为回到当前文章，机构登录入口可能携带当前资源 URL；你主动使用 WebVPN 跳转时，当前地址也会交给所选校园代理入口。这些接收方按各自的数据政策处理正常访问和认证请求。</p>
+  <p>因此，本扩展向 Firefox 声明 authenticationInfo（认证信息）及 browsingActivity（用于登录回跳及校园代理的资源地址）。此声明不代表向开发者上传密码或浏览历史。</p>
+  <h2>本地记录与控制</h2>
+  <p>选校失败记录最多 30 条，仅包含站点域名、失败原因和时间，不保存完整 URL、网页内容或账号信息，不向外发送。你可在弹出页查看或清空。</p>
+  <p>自动登录默认关闭；自动选校与校外授权有独立开关。你可以清空账号字段、关闭相应功能或移除扩展。更换扩展 ID 不会自动迁移旧扩展的本地数据。</p>
+  <h2>Data use (English)</h2>
+  <p>Credentials and settings stay in extension-local storage. Verified HIT CAS/WLAN forms send credentials to the school when sign-in is requested or Auto Login is enabled. Official institution sign-in and explicit WebVPN navigation may pass the current resource URL to support return navigation. No credentials, browsing history, or failure records are sent to a maintainer service. The extension has no analytics or remote executable code.</p>
+</body>
+</html>

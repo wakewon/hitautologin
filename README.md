@@ -49,6 +49,8 @@ npm run build:firefox-dev
 
 在 Firefox 打开 `about:debugging#/runtime/this-firefox` →「临时载入附加组件」→ 选择生成的 `dist/firefox-dev/manifest.json`，然后刷新目标网站。该开发包使用独立 ID，账号设置与原扩展分开；Firefox 重启后需要重新载入。详细步骤、更新方式及长期安装选项见 [开发版安装说明](./docs/firefox-dev-install.md)。
 
+已有自己的 Mozilla 开发者账号、准备选择 **On your own** 时，运行 `npm run build:firefox-unlisted`，使用生成的个人扩展包和源码包，按[自行分发说明](./docs/firefox-self-distribution.md)提交签名并安装返回的 XPI。
+
 ---
 
 ## 油猴 v1.4.2 使用说明
